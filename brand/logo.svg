@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 64" role="img" aria-labelledby="t">
+  <title id="t">Mullion</title>
+  <style>
+    .ink{fill:#111418} .pane{fill:#1F5FD6}
+    @media (prefers-color-scheme: dark){ .ink{fill:#ECEDEE} .pane{fill:#5B93FF} }
+  </style>
+  <rect x="4" y="13" width="26" height="38" rx="5" class="ink"/>
+  <rect x="34" y="13" width="26" height="38" rx="5" class="pane"/>
+  <path d="M30 23 V45 L35.2 40.2 L38.8 48.4 L42.4 46.8 L38.8 38.8 L45.6 38.8 Z"
+        fill="#FFFFFF" stroke="#111418" stroke-width="1.6" stroke-linejoin="round"/>
+  <!-- ponytail: live system-ui text; outline to paths before shipping the logo outside the repo -->
+  <text x="76" y="44" class="ink"
+        font-family="-apple-system, 'SF Pro Display', 'Segoe UI Variable Display', 'Segoe UI', Ubuntu, Roboto, sans-serif"
+        font-size="34" font-weight="650" letter-spacing="-0.7">Mullion</text>
+</svg>
