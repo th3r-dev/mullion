@@ -161,7 +161,7 @@ impl Signaling {
                 let resp = Response::from_data(body).with_header(Header::from_bytes("Content-Type", "application/json").unwrap());
                 req.respond(with_cors(resp)).context("respond")
             }
-            (p, Method::Get) if icon_file(p).is_some() => {
+            (p, Method::Get | Method::Head) if icon_file(p).is_some() => {
                 let (bytes, mime) = icon_file(p).unwrap();
                 let resp = Response::from_data(bytes.to_vec())
                     .with_header(Header::from_bytes("Content-Type", mime).unwrap())
