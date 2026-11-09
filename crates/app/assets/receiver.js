@@ -258,5 +258,16 @@
     if (state.status !== 'error') setStatus('idle');
   }
 
-  window.mullion = { connect, disconnect, stats: snapshot, onStatus: (fn) => state.listeners.push(fn), decodeStrip, unwrapMs, deviceId, deviceName, setDeviceName };
+  window.mullion = { connect, disconnect, stats: snapshot, onStatus: (fn) => state.listeners.push(fn), decodeStrip, unwrapMs, deviceId, deviceName, setDeviceName,
+    // UI work without a host: feed a fake stream and status through the real paths.
+    _simulate(status, videoEl, hostName) {
+      if (videoEl && !videoEl.srcObject) {
+        const c = document.createElement('canvas'); c.width = 1920; c.height = 1080; const g = c.getContext('2d');
+        let t = 0; (function paint() { t += 0.02; g.fillStyle = '#1b2430'; g.fillRect(0, 0, 1920, 1080); g.fillStyle = '#5B93FF'; g.fillRect(760 + Math.sin(t) * 500, 400, 400, 280); g.fillStyle = '#fff'; g.font = '600 64px system-ui'; g.fillText('Extended desktop', 120, 160); requestAnimationFrame(paint); })();
+        videoEl.srcObject = c.captureStream(60); videoEl.play().catch(() => {});
+        state.video = videoEl;
+      }
+      state.hostName = hostName || 'DAISY-PC'; state.hostIp = '127.0.0.1';
+      setStatus(status);
+    } };
 })();

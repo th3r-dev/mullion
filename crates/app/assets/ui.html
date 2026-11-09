@@ -1,0 +1,48 @@
+<div class="stage" id="stage">
+  <video id="v" muted autoplay playsinline></video>
+</div>
+
+<div class="setup" id="setup">
+  <div class="card" id="card">
+    <div class="brand">
+      <svg viewBox="0 0 64 64" aria-hidden="true">
+        <rect x="4" y="13" width="26" height="38" rx="5" fill="var(--ink)"/>
+        <rect x="34" y="13" width="26" height="38" rx="5" fill="var(--accent)"/>
+        <path d="M30 23 V45 L35.2 40.2 L38.8 48.4 L42.4 46.8 L38.8 38.8 L45.6 38.8 Z" fill="#fff" stroke="#111418" stroke-width="1.6" stroke-linejoin="round"/>
+      </svg>
+      <div><h1>Mullion</h1><p>One desk, every screen.</p></div>
+    </div>
+    <div class="field">
+      <label for="ip">Mac</label>
+      <input id="ip" inputmode="decimal" autocomplete="off" placeholder="IP shown by Mullion on the Mac, e.g. 10.43.77.126">
+    </div>
+    <div class="row">
+      <div class="field">
+        <label for="name">This device</label>
+        <input id="name" autocomplete="off" maxlength="32" placeholder="Name">
+      </div>
+      <div class="field">
+        <label>Show</label>
+        <div class="seg" role="radiogroup" aria-label="Mode">
+          <div class="thumb" id="thumb"></div>
+          <button id="segMirror" type="button" aria-pressed="true">Mirror</button>
+          <button id="segExtend" type="button" aria-pressed="false">Extend</button>
+        </div>
+      </div>
+    </div>
+    <button class="primary" id="go" type="button">Connect</button>
+    <div class="hint" id="hint"></div>
+  </div>
+</div>
+
+<div class="toolbar" id="toolbar" role="toolbar">
+  <span class="dot" aria-hidden="true"></span>
+  <span class="name" id="nameOut">Tablet</span>
+  <span class="sep"></span>
+  <button id="modeBtn" type="button" title="Switch mode">Mirror</button>
+  <button id="fsBtn" type="button">Full screen</button>
+  <button id="dcBtn" type="button">Disconnect</button>
+</div>
+
+<div class="status" id="status" role="status" aria-live="polite"><span class="dot" aria-hidden="true"></span><span class="text"></span></div>
+<div class="hud" id="hud" aria-hidden="true"></div>

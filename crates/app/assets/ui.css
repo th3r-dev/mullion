@@ -1,0 +1,106 @@
+/* Mullion receiver UI. Tokens from brand/BRAND.md; motion from the apple-design
+   notes: springs for anything touchable, response on pointer-down, glass only
+   on the toolbar and the HUD, reduced-motion falls back to short fades. */
+
+:root {
+  --ink: #111418; --paper: #F7F7F5; --line: #D9DBDE;
+  --accent: #1F5FD6; --on-accent: #FFFFFF;
+  --device: #D9532B;
+  --glass: rgba(247, 247, 245, 0.72); --glass-edge: rgba(255, 255, 255, 0.5);
+  --hud: rgba(17, 20, 24, 0.86);
+  --radius: 12px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #ECEDEE; --paper: #0F1113; --line: #2A2E33;
+    --accent: #5B93FF; --on-accent: #0F1113;
+    --device: #FF7A52;
+    --glass: rgba(17, 20, 24, 0.72); --glass-edge: rgba(255, 255, 255, 0.08);
+  }
+}
+
+html, body { margin: 0; height: 100%; background: var(--paper); color: var(--ink);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI Variable", Roboto, sans-serif;
+  font-optical-sizing: auto; -webkit-font-smoothing: antialiased; overflow: hidden; }
+* { box-sizing: border-box; }
+button, input, select { font: inherit; color: inherit; }
+
+/* Stage: video full-bleed underneath; chrome floats above. */
+.stage { position: fixed; inset: 0; background: #000; }
+.stage video { width: 100%; height: 100%; object-fit: contain; display: block;
+  opacity: 0; transition: opacity 240ms ease-out; }
+.stage.live video { opacity: 1; }
+/* With the toolbar present, the status pill takes the slot under it. */
+.stage.live ~ .status { top: calc(max(12px, env(safe-area-inset-top)) + 58px); }
+
+/* Setup card: the only solid surface; anchored to the centre, materializes. */
+.setup { position: fixed; inset: 0; display: grid; place-items: center; padding: 24px;
+  background: var(--paper); }
+.card { width: min(420px, 100%); display: grid; gap: 14px;
+  will-change: transform, opacity, filter; transform-origin: 50% 50%; }
+.card .brand { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
+.card .brand svg { width: 44px; height: 44px; flex: none; }
+.card .brand h1 { font-size: 22px; line-height: 1.2; letter-spacing: -0.01em; font-weight: 650; margin: 0; }
+.card .brand p { margin: 0; opacity: .7; font-size: 13px; letter-spacing: 0; }
+.field { display: grid; gap: 4px; }
+.field label { font-size: 12px; font-weight: 600; letter-spacing: .01em; opacity: .75; }
+.field input, .field select { width: 100%; padding: 10px 12px; border-radius: 10px;
+  border: 1px solid var(--line); background: transparent; outline: none;
+  font-variant-numeric: tabular-nums; transition: border-color 120ms ease-out, box-shadow 120ms ease-out; }
+.field input:focus-visible, .field select:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); }
+.row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.seg { display: grid; grid-template-columns: 1fr 1fr; padding: 3px; border-radius: 10px; border: 1px solid var(--line); position: relative; }
+.seg button { position: relative; z-index: 1; background: none; border: 0; padding: 8px 0; border-radius: 8px; font-weight: 600; opacity: .7; }
+.seg button[aria-pressed="true"] { opacity: 1; color: var(--on-accent); }
+.seg .thumb { position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc(50% - 3px); border-radius: 8px;
+  background: var(--accent); will-change: transform; }
+.primary { padding: 12px 16px; border-radius: 10px; border: 0; background: var(--accent); color: var(--on-accent);
+  font-weight: 650; letter-spacing: 0; cursor: pointer; will-change: transform;
+  transition: transform 100ms ease-out, filter 100ms ease-out; }
+.primary:active, .primary.pressed { transform: scale(0.97); filter: brightness(.95); }
+.primary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.hint { font-size: 13px; opacity: .7; min-height: 1.5em; }
+.hint.err { opacity: 1; }
+
+/* Floating toolbar: translucent, hides over the video after a pause. */
+.toolbar { position: fixed; left: 50%; top: max(12px, env(safe-area-inset-top)); transform: translate(-50%, 0);
+  display: flex; gap: 8px; align-items: center; padding: 8px 10px; border-radius: 14px;
+  /* Always the dark material: what sits under it is the video, not the page. */
+  color: #fff; background: rgba(17, 20, 24, 0.72); backdrop-filter: blur(20px) saturate(180%); -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.12); box-shadow: 0 8px 24px rgba(0,0,0,.28);
+  will-change: transform, opacity; pointer-events: auto; }
+.toolbar button { border: 1px solid transparent; background: transparent; color: #fff; padding: 6px 10px; border-radius: 9px; font-weight: 600; letter-spacing: .01em;
+  transition: transform 100ms ease-out, background 100ms ease-out; }
+.toolbar button:active { transform: scale(0.97); background: rgba(255,255,255,.12); }
+.toolbar .dot { width: 8px; height: 8px; border-radius: 50%; background: #FF7A52; box-shadow: 0 0 0 1px #FF7A52; margin: 0 2px 0 4px; }
+.toolbar .name { font-weight: 650; letter-spacing: -0.005em; }
+.toolbar .sep { width: 1px; height: 18px; background: rgba(255,255,255,.18); }
+
+/* Status pill: enters and leaves through the top edge (same path both ways). */
+.status { position: fixed; left: 50%; top: max(12px, env(safe-area-inset-top)); transform: translate(-50%, -140%);
+  padding: 6px 12px; border-radius: 999px; background: var(--hud); color: #fff; font-size: 13px; font-weight: 600;
+  letter-spacing: .01em; white-space: nowrap; will-change: transform, opacity; pointer-events: none; }
+.status .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #FF7A52; margin-right: 8px; vertical-align: 1px; }
+
+/* HUD: the brand's dark pill, tabular figures. */
+.hud { position: fixed; right: 12px; bottom: 12px; padding: 6px 10px; border-radius: 8px;
+  background: var(--hud); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); color: #fff;
+  font-size: 12px; line-height: 1.35; font-weight: 500; letter-spacing: .01em; font-variant-numeric: tabular-nums;
+  white-space: pre; will-change: opacity; transition: opacity 200ms ease-out; pointer-events: none; }
+.hud.dim { opacity: 0; }
+.hud:not(.on) { opacity: 0; }
+.hud b { font-weight: 650; }
+
+/* Accessibility variants. */
+@media (prefers-reduced-transparency: reduce) {
+  .toolbar { background: #111418; backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .hud, .status { background: #111418; backdrop-filter: none; -webkit-backdrop-filter: none; }
+}
+@media (prefers-contrast: more) {
+  .toolbar { border-color: #fff; }
+  .hud, .status { outline: 1px solid #fff; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .card, .toolbar, .status, .seg .thumb { transition: opacity 150ms ease !important; }
+  .stage video { transition: opacity 150ms ease; }
+}
