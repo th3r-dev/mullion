@@ -40,6 +40,9 @@ struct AnswerBody<'a> {
     r#type: &'static str,
     sdp: &'a str,
     host_name: &'a str,
+    /// Whether frames carry the latency strip; the receiver skips the
+    /// per-frame readback when they do not.
+    probe: bool,
 }
 
 pub struct Signaling {
@@ -121,7 +124,12 @@ impl Signaling {
                 match self.handler.answer(&offer.sdp, offer.mode, device, peer) {
                     Ok(sdp) => {
                         info!("offer from {peer} answered ({:?})", offer.mode);
-                        let body = serde_json::to_vec(&AnswerBody { r#type: "answer", sdp: &sdp, host_name: &self.host_name })?;
+                        let body = serde_json::to_vec(&AnswerBody {
+                            r#type: "answer",
+                            sdp: &sdp,
+                            host_name: &self.host_name,
+                            probe: self.config.get("probe").and_then(|v| v.as_bool()).unwrap_or(false),
+                        })?;
                         let resp = Response::from_data(body)
                             .with_header(Header::from_bytes("Content-Type", "application/json").unwrap());
                         req.respond(with_cors(resp)).context("respond")
@@ -224,6 +232,7 @@ mod tests {
         let body: serde_json::Value = r.into_json().unwrap();
         assert_eq!(body["type"], "answer");
         assert_eq!(body["host_name"], "TEST-MAC");
+        assert_eq!(body["probe"], false, "no config: strip assumed off");
         assert!(body["sdp"].as_str().unwrap().contains("packetization-mode=1"));
     }
 

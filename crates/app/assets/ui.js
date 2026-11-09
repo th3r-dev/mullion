@@ -122,8 +122,12 @@
   modeBtn.addEventListener('click', () => { setMode(mode === 'extend' ? 'mirror' : 'extend', true); connect(); });
   fsBtn.addEventListener('click', () => { const d = document.documentElement; if (!document.fullscreenElement) (d.requestFullscreen || d.webkitRequestFullscreen).call(d); else (document.exitFullscreen || document.webkitExitFullscreen).call(document); });
 
+  // React to transitions only; a repeated status must not replay the entrance.
+  let lastStatus = null;
   mullion.onStatus((s) => {
     const host = s.hostName || s.hostIp || 'the Mac';
+    if (s.status === lastStatus && s.status !== 'error') return;
+    lastStatus = s.status;
     switch (s.status) {
       case 'connecting': hint.textContent = `Connecting to ${s.hostIp}`; break;
       case 'connected': hint.textContent = `Connected to ${host}`; break;
