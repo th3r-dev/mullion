@@ -275,10 +275,11 @@ impl SessionLoop {
                     }
                 }
                 Some(Msg::Frame(source, frame)) => {
+                    // Log each encoded frame once per source, not once per viewer.
                     let mut logged = false;
                     for (i, a) in self.sessions.iter_mut().enumerate() {
                         if a.connected && a.source == Some(source) {
-                            write_frame(a, &frame, &self.log, !logged && source == Source::Main);
+                            write_frame(a, &frame, &self.log, !logged);
                             logged = true;
                             touched.push(i);
                         }
@@ -545,6 +546,10 @@ impl SessionLoop {
 }
 
 fn write_frame(a: &mut Active, frame: &EncodedFrame, log: &TimingLog, log_it: bool) {
+    let source_id = match a.source {
+        Some(Source::Virtual(id)) => id,
+        _ => 0,
+    };
     let Some(mid) = a.video_mid else { return };
     let Some(writer) = a.rtc.writer(mid) else { return };
     let Some(pt) = writer.payload_params().find(|p| p.spec().codec == Codec::H264).map(|p| p.pt()) else {
@@ -560,6 +565,7 @@ fn write_frame(a: &mut Active, frame: &EncodedFrame, log: &TimingLog, log_it: bo
                 return;
             }
             log.record(Record::Frame {
+                source: source_id,
                 seq: frame.seq,
                 capture_ms: frame.capture_ms,
                 encode_done_ms: frame.encode_done_ms,

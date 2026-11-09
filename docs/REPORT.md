@@ -93,3 +93,32 @@ host-side split shows the encoder (17 ms p95) is the largest stage, not the
 receiver. Unless the tablet run shows more than ~20 ms in the receive-to-present
 stage (the SRS 7 disproof condition), the MediaCodec fallback is not needed and
 step 2 can start.
+
+
+## Addendum, same day: step 2 on macOS and the first per-device Wi-Fi numbers
+
+Extend mode shipped on `feat/3-extend-macos` (issue #3): one `CGVirtualDisplay`
+per device, named after the device in Display Settings, pipelines keyed by
+capture source, Mirror/Extend toggle in every receiver, `/devices` endpoint.
+Two tablets ran as two separate extended screens with the MacBook staying main.
+
+A trap worth recording: macOS made the first virtual display *main* and turned
+the built-in display into a mirror of it, so clicks landed on the tablet's
+screen and the tablet looked like a mirror. The host now un-mirrors and pins the
+built-in display as main after every creation (`platform/macos/arrange.rs`).
+
+**Per-device glass to glass, both on Wi-Fi, same host, same minute** (short
+sample, `logs/host-1794226196.jsonl`):
+
+| Device | Receiver | n | p50 | p95 | max |
+| --- | --- | --- | --- | --- | --- |
+| Windows PC, 10.43.77.138 | Chrome 156 | 174 | 61 ms | **72 ms** | 525 ms |
+| Tablet, 10.43.77.59 | Chrome 152, desktop mode | 514 | 159 ms | **621 ms** | 3,421 ms |
+
+Host encode stage was 9 to 10 ms for both. The pipeline is identical up to the
+radio, so the 9x gap is the device or its link, not the design. Before the SRS
+7 disproof condition ("more than 20 ms in receive-to-present") can be judged for
+the tablet, it needs: 5 GHz confirmed, Wi-Fi power saving off (T-25), Chrome in
+mobile mode, and ideally the Mullion APK instead of the browser. The Windows
+PC's 72 ms is over the 50 ms gate too, by 22 ms, with the Mac itself on Wi-Fi
+rather than the Ethernet the reference setup (A-9) assumes.

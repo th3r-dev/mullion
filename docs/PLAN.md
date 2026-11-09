@@ -56,9 +56,9 @@ dropped unless step 9 measures data-channel input latency above 10 ms on the LAN
 | Step | Milestone | Build | Gate (all must pass) |
 | --- | --- | --- | --- |
 | 1 | M1 | Mirror the macOS main display to one tablet: ScreenCaptureKit, VideoToolbox, str0m, `<video>` in the Dioxus Android app | [SRS.md](SRS.md) section 7: p95 under 50 ms, 57+ fps |
-| 2 | M2 | Install and drive the IddCx Virtual Display Driver (VirtualDrivers/MttVDD); stream a virtual monitor instead of the main one | Windows shows the tablet in Display Settings; dragging a window onto it shows it on the tablet; driver removal leaves no ghost monitor |
+| 2 | M2 | Virtual monitor per device. **Done on macOS first** (CGVirtualDisplay, 2026-11-09, `feat/3-extend-macos`); Windows via the IddCx driver (VirtualDrivers/MttVDD) still to do | The OS shows the tablet in Display Settings; dragging a window onto it shows it on the tablet; host exit leaves no ghost monitor. macOS: passed by hand on 2026-11-09 with two tablets |
 | 3 | M2 | mDNS discovery (`_mullion._tcp`) and 6-digit PIN pairing (SPAKE2), then pinned certificate fingerprints | Unpaired device on the LAN cannot get a stream; wrong PIN 5 times locks pairing for 60 s; re-pair not needed after reboot |
-| 4 | M2 | Three tablets, one virtual monitor and one encoder session each | 3 x 1080p60 for 10 min, each p95 under 50 ms; a clear message when the GPU's encoder session limit is hit |
+| 4 | M2 | Three tablets, one virtual monitor and one encoder session each. Per-device displays and sessions landed with step 2 on macOS; the 3-tablet soak and the session-limit message remain | 3 x 1080p60 for 10 min, each p95 under 50 ms; a clear message when the GPU's encoder session limit is hit |
 | 5 | M2 | Touch from tablet to PC over the data channel; then USB wired mode via `adb reverse` | Tap lands within 2 px of target; drag latency under 60 ms; USB mode p95 under 30 ms |
 | 6 | M3 | macOS host: CGVirtualDisplay and CGEvent on top of the step 1 capture and encode | Steps 2, 4, 5 tests pass on macOS 14+; permission prompts use BRAND.md copy |
 | 7 | M3 | Ubuntu host: portal virtual monitor + PipeWire on Wayland, evdi on X11, VA-API or NVENC, RemoteDesktop portal | Same tests pass on the current Ubuntu LTS (GNOME, Wayland); restore token saved so the prompt shows once |
