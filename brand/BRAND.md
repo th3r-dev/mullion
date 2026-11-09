@@ -47,12 +47,12 @@ Rules:
 
 - Measured contrast: `--accent` on `--paper` is 5.3:1 light and 6.4:1 dark;
   `--on-accent` on `--accent` is 5.7:1 light and 6.4:1 dark. White on the dark
-  accent is only 3.0:1, which is why `--on-accent` flips. Check any new pair before using it.
+  accent is only 2.97:1, which is why `--on-accent` flips. Check any new pair before using it.
 - Device colors never carry text. They appear as an 8 px dot, a 2 px tile edge on
   the layout map, and the ring on the cursor label. Against `--paper` they measure
   3.7 to 9.0:1, above the 3:1 needed for non-text marks.
 - The cursor label surface is always dark, so its dot and ring always use the
-  dark-column device colors (7.3:1 and up), whatever the OS theme. The label text
+  dark-column device colors (7.1:1 and up), whatever the OS theme. The label text
   is white on that surface (18:1), legible on any wallpaper.
 - Users can change a device color; the app picks from these three first, then
   lets them choose any color that passes 3:1 against `--paper` as a non-text mark.

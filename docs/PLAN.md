@@ -3,7 +3,7 @@
 Ten build steps in five milestones, each closed by a gate that can be checked.
 Nothing is built yet. Step 1 is specified in full in [SRS.md](SRS.md) and
 [TEST_PLAN.md](TEST_PLAN.md); later steps get their own SRS when they start.
-Source: [the architecture plan](https://claude.ai/artifact/Y69wyvkwBqCpKfPfMJ7g6f), 2026-11-09.
+Step 1 is being built; the decisions below (1 to 4) were taken on 2026-11-09.
 
 ```mermaid
 flowchart LR
@@ -55,12 +55,12 @@ dropped unless step 9 measures data-channel input latency above 10 ms on the LAN
 
 | Step | Milestone | Build | Gate (all must pass) |
 | --- | --- | --- | --- |
-| 1 | M1 | Mirror the Windows main screen to one tablet: capture, hardware encode, str0m, `<video>` in the Dioxus Android app | [SRS.md](SRS.md) section 7: p95 under 50 ms, 57+ fps |
+| 1 | M1 | Mirror the macOS main display to one tablet: ScreenCaptureKit, VideoToolbox, str0m, `<video>` in the Dioxus Android app | [SRS.md](SRS.md) section 7: p95 under 50 ms, 57+ fps |
 | 2 | M2 | Install and drive the IddCx Virtual Display Driver (VirtualDrivers/MttVDD); stream a virtual monitor instead of the main one | Windows shows the tablet in Display Settings; dragging a window onto it shows it on the tablet; driver removal leaves no ghost monitor |
 | 3 | M2 | mDNS discovery (`_mullion._tcp`) and 6-digit PIN pairing (SPAKE2), then pinned certificate fingerprints | Unpaired device on the LAN cannot get a stream; wrong PIN 5 times locks pairing for 60 s; re-pair not needed after reboot |
 | 4 | M2 | Three tablets, one virtual monitor and one encoder session each | 3 x 1080p60 for 10 min, each p95 under 50 ms; a clear message when the GPU's encoder session limit is hit |
 | 5 | M2 | Touch from tablet to PC over the data channel; then USB wired mode via `adb reverse` | Tap lands within 2 px of target; drag latency under 60 ms; USB mode p95 under 30 ms |
-| 6 | M3 | macOS host: CGVirtualDisplay, ScreenCaptureKit, VideoToolbox, CGEvent | Steps 1, 2, 4, 5 tests pass on macOS 14+; permission prompts use BRAND.md copy |
+| 6 | M3 | macOS host: CGVirtualDisplay and CGEvent on top of the step 1 capture and encode | Steps 2, 4, 5 tests pass on macOS 14+; permission prompts use BRAND.md copy |
 | 7 | M3 | Ubuntu host: portal virtual monitor + PipeWire on Wayland, evdi on X11, VA-API or NVENC, RemoteDesktop portal | Same tests pass on the current Ubuntu LTS (GNOME, Wayland); restore token saved so the prompt shows once |
 | 8 | M4 | Mode switch per device: Extend, Mirror (one shared encode), Control | Switching mode never asks to pair again; 2 tablets mirroring cost one encode, checked in the GPU session count |
 | 9 | M5 | Layout map and edge switching between computers, then Android as a target (AccessibilityService + overlay cursor + IME) | Cursor crosses an edge in under 30 ms; held keys released before every switch; Thai/English layout follows the target device |
@@ -116,9 +116,11 @@ sequenceDiagram
 | GPL code in lan-mouse and Input Leap | 9 | License contamination | Read for design only; no copied code unless Mullion's license is chosen to match |
 | Google Play review of Accessibility use | 9 | Store rejection | In-app disclosure screen in BRAND.md voice; sideload build as backup |
 
-## Decisions needed before building
+## Decisions taken (2026-11-09)
 
-1. Confirm the name Mullion and the v0 mark, or pick another.
-2. Windows first (needs a Windows test PC), or macOS first on this Mac. See SRS A-2.
-3. Project license: MIT/Apache-2.0 (blocks reusing GPL code) or GPL-3.0.
-4. Tracker: Jira is connected; which project key should tickets go to.
+1. Name Mullion and the v0 mark stay. A class 9/42 trademark search is still owed
+   before anything ships; `mullion.app` and `mullion.dev` are already registered.
+2. macOS hosts PoC 1 on the available M1 Mac; Windows is still the first host for
+   M2 because Extend mode needs IddCx. See SRS A-2.
+3. License `MIT OR Apache-2.0`. GPL prior art is read for design only.
+4. Tracker: GitHub Issues on the `mullion` repo; PRs land on `dev`.
