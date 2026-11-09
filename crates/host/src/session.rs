@@ -5,6 +5,7 @@
 //!
 //! One receiver at a time (PoC 1 scope). A new offer replaces the old session.
 
+use std::collections::HashMap;
 use std::net::{SocketAddr, UdpSocket};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
@@ -26,7 +27,7 @@ use crate::timing::{now_ms, Record, TimingLog};
 
 pub enum Msg {
     NewRtc(Rtc),
-    Packet { at: Instant, source: SocketAddr, data: Vec<u8> },
+    Packet { at: Instant, source: SocketAddr, destination: SocketAddr, data: Vec<u8> },
     Frame(EncodedFrame),
     Shutdown,
 }
@@ -65,7 +66,8 @@ impl SessionHandle {
 }
 
 pub struct SessionConfig {
-    pub bind_ip: std::net::IpAddr,
+    /// One UDP socket is bound per IP so every datagram has a known destination
+    /// that matches an ICE candidate.
     pub advertise_ips: Vec<std::net::IpAddr>,
     pub pipeline: PipelineConfig,
 }
@@ -76,38 +78,50 @@ pub fn start(
     platform: Arc<dyn Platform>,
     log: Arc<TimingLog>,
 ) -> Result<(SessionHandle, std::thread::JoinHandle<()>)> {
-    let socket = UdpSocket::bind((cfg.bind_ip, 0)).context("bind UDP")?;
-    let port = socket.local_addr()?.port();
-    let local_addrs: Vec<SocketAddr> = cfg.advertise_ips.iter().map(|ip| SocketAddr::new(*ip, port)).collect();
-    info!("WebRTC media on UDP {}", local_addrs.iter().map(|a| a.to_string()).collect::<Vec<_>>().join(", "));
-
     let (tx, rx) = mpsc::channel::<Msg>();
-
-    // UDP reader: blocks on the socket, forwards datagrams.
-    let reader_socket = socket.try_clone()?;
-    let reader_tx = tx.clone();
-    std::thread::Builder::new().name("mullion-udp".into()).spawn(move || {
-        let mut buf = vec![0u8; 2000];
-        loop {
-            match reader_socket.recv_from(&mut buf) {
-                Ok((n, source)) => {
-                    if reader_tx.send(Msg::Packet { at: Instant::now(), source, data: buf[..n].to_vec() }).is_err() {
-                        break;
+    let mut sockets: HashMap<SocketAddr, UdpSocket> = HashMap::new();
+    for ip in &cfg.advertise_ips {
+        let socket = match UdpSocket::bind((*ip, 0)) {
+            Ok(s) => s,
+            Err(e) => {
+                warn!("bind UDP on {ip}: {e}");
+                continue;
+            }
+        };
+        let local = socket.local_addr()?;
+        // UDP reader per socket: blocks, forwards datagrams with their destination.
+        let reader_socket = socket.try_clone()?;
+        let reader_tx = tx.clone();
+        std::thread::Builder::new().name(format!("mullion-udp-{ip}")).spawn(move || {
+            let mut buf = vec![0u8; 2000];
+            loop {
+                match reader_socket.recv_from(&mut buf) {
+                    Ok((n, source)) => {
+                        let m = Msg::Packet { at: Instant::now(), source, destination: local, data: buf[..n].to_vec() };
+                        if reader_tx.send(m).is_err() {
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        warn!("udp recv: {e}");
+                        std::thread::sleep(Duration::from_millis(10));
                     }
                 }
-                Err(e) => {
-                    warn!("udp recv: {e}");
-                    std::thread::sleep(Duration::from_millis(10));
-                }
             }
-        }
-    })?;
+        })?;
+        sockets.insert(local, socket);
+    }
+    if sockets.is_empty() {
+        anyhow::bail!("no UDP socket could be bound");
+    }
+    let local_addrs: Vec<SocketAddr> = sockets.keys().copied().collect();
+    info!("WebRTC media on UDP {}", local_addrs.iter().map(|a| a.to_string()).collect::<Vec<_>>().join(", "));
 
     let frame_tx = tx.clone();
     let handle = SessionHandle { tx, local_addrs };
     let join = std::thread::Builder::new().name("mullion-session".into()).spawn(move || {
         let mut loop_state = SessionLoop {
-            socket,
+            sockets,
             rx,
             frame_tx,
             platform,
@@ -131,7 +145,7 @@ struct Active {
 }
 
 struct SessionLoop {
-    socket: UdpSocket,
+    sockets: HashMap<SocketAddr, UdpSocket>,
     rx: Receiver<Msg>,
     frame_tx: Sender<Msg>,
     platform: Arc<dyn Platform>,
@@ -165,13 +179,10 @@ impl SessionLoop {
                         frames_sent: 0,
                     });
                 }
-                Some(Msg::Packet { at, source, data }) => {
+                Some(Msg::Packet { at, source, destination, data }) => {
                     if let Some(a) = self.current.as_mut() {
                         if let Ok(contents) = data.as_slice().try_into() {
-                            let input = Input::Receive(
-                                at,
-                                Receive { proto: Protocol::Udp, source, destination: self.socket.local_addr().unwrap(), contents },
-                            );
+                            let input = Input::Receive(at, Receive { proto: Protocol::Udp, source, destination, contents });
                             if let Err(e) = a.rtc.handle_input(input) {
                                 warn!("handle_input: {e}");
                             }
@@ -204,8 +215,11 @@ impl SessionLoop {
             match a.rtc.poll_output() {
                 Ok(Output::Timeout(t)) => return t,
                 Ok(Output::Transmit(t)) => {
-                    if let Err(e) = self.socket.send_to(&t.contents, t.destination) {
-                        debug!("send_to {}: {e}", t.destination);
+                    let sock = self.sockets.get(&t.source).or_else(|| self.sockets.values().next());
+                    if let Some(sock) = sock {
+                        if let Err(e) = sock.send_to(&t.contents, t.destination) {
+                            debug!("send_to {}: {e}", t.destination);
+                        }
                     }
                 }
                 Ok(Output::Event(ev)) => {

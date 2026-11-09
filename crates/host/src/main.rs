@@ -97,7 +97,7 @@ fn main() -> Result<()> {
         ..Default::default()
     };
     let (handle, session_thread) =
-        session::start(session::SessionConfig { bind_ip: args.bind, advertise_ips: ips.clone(), pipeline }, platform, log.clone())?;
+        session::start(session::SessionConfig { advertise_ips: ips.clone(), pipeline }, platform, log.clone())?;
 
     let addr = SocketAddr::new(args.bind, args.port);
     let signaling = signaling::Signaling::bind(addr, Arc::new(session::SharedHandle(Mutex::new(handle))), host_name.clone())?;

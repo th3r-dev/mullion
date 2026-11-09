@@ -8,18 +8,21 @@
 //!   the per-block threshold even when the video is scaled or letterboxed);
 //! * 32 data blocks: the low 32 bits of host wall-clock milliseconds, MSB first,
 //!   white = 1, black = 0;
-//! * 2 parity blocks: even parity of the low and high 16 bits.
+//! * 2 parity blocks: even parity of the low and high 16 bits;
+//! * 2 tail blocks: always black, then white, so the reader can find the right
+//!   edge of the strip when the video is pillarboxed.
 //!
-//! 36 blocks in total. Every reader-side rule (threshold, parity, sync) lives
+//! 38 blocks in total. Every reader-side rule (threshold, parity, sync) lives
 //! here so the JS in the receiver and the Rust tests agree on one definition.
 
 /// Number of blocks in the strip, including sync and parity.
-pub const BLOCKS: usize = 36;
+pub const BLOCKS: usize = 38;
 pub const SYNC_BLOCKS: usize = 2;
 pub const DATA_BLOCKS: usize = 32;
 pub const PARITY_BLOCKS: usize = 2;
+pub const TAIL_BLOCKS: usize = 2;
 
-/// Encode a host wall-clock millisecond value into the 36 block values (1 = white).
+/// Encode a host wall-clock millisecond value into the 38 block values (1 = white).
 pub fn encode(ms: u64) -> [u8; BLOCKS] {
     let v = (ms & 0xFFFF_FFFF) as u32;
     let mut out = [0u8; BLOCKS];
@@ -30,15 +33,17 @@ pub fn encode(ms: u64) -> [u8; BLOCKS] {
     }
     out[SYNC_BLOCKS + DATA_BLOCKS] = ((v & 0xFFFF).count_ones() & 1) as u8;
     out[SYNC_BLOCKS + DATA_BLOCKS + 1] = ((v >> 16).count_ones() & 1) as u8;
+    out[BLOCKS - 2] = 0;
+    out[BLOCKS - 1] = 1;
     out
 }
 
 /// Why a strip could not be decoded.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum DecodeError {
-    /// Fewer than 36 samples.
+    /// Fewer than 38 samples.
     TooShort,
-    /// The two sync blocks are not white-then-black (or too close to tell).
+    /// The sync blocks (white, black ... black, white) do not read as such.
     NoSync,
     /// Parity mismatch: the frame was probably sampled mid-scanout or scaled badly.
     Parity,
@@ -50,13 +55,16 @@ pub fn decode(luma: &[u8]) -> Result<u32, DecodeError> {
     if luma.len() < BLOCKS {
         return Err(DecodeError::TooShort);
     }
-    let white = luma[0] as i32;
-    let black = luma[1] as i32;
+    let white = (luma[0] as i32 + luma[BLOCKS - 1] as i32) / 2;
+    let black = (luma[1] as i32 + luma[BLOCKS - 2] as i32) / 2;
     if white - black < 64 {
         return Err(DecodeError::NoSync);
     }
     let mid = (white + black) / 2;
     let bit = |i: usize| (luma[i] as i32 > mid) as u32;
+    if bit(0) != 1 || bit(1) != 0 || bit(BLOCKS - 2) != 0 || bit(BLOCKS - 1) != 1 {
+        return Err(DecodeError::NoSync);
+    }
     let mut v: u32 = 0;
     for i in 0..DATA_BLOCKS {
         v = (v << 1) | bit(SYNC_BLOCKS + i);
@@ -99,6 +107,8 @@ mod tests {
             let strip = encode(ms);
             assert_eq!(strip[0], 1);
             assert_eq!(strip[1], 0);
+            assert_eq!(strip[BLOCKS - 2], 0);
+            assert_eq!(strip[BLOCKS - 1], 1);
             assert_eq!(decode(&to_luma(&strip)), Ok((ms & 0xFFFF_FFFF) as u32), "ms={ms}");
         }
     }
@@ -121,6 +131,10 @@ mod tests {
         assert_eq!(decode(&[0u8; 10]), Err(DecodeError::TooShort));
         let flat = vec![128u8; BLOCKS];
         assert_eq!(decode(&flat), Err(DecodeError::NoSync));
+        // Right marker missing (e.g. the sampler ran past the content edge).
+        let mut luma = to_luma(&encode(5));
+        luma[BLOCKS - 1] = 16;
+        assert_eq!(decode(&luma), Err(DecodeError::NoSync));
     }
 
     #[test]

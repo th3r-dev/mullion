@@ -1,0 +1,3 @@
+{"rec":"event","at_ms":1794214990526.793,"what":"offer accepted"}
+{"rec":"event","at_ms":1794214990643.004,"what":"connected"}
+{"rec":"event","at_ms":1794214990803.452,"what":"session ended: pipeline failed"}

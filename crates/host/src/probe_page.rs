@@ -12,9 +12,9 @@ pub const PROBE_HTML: &str = r##"<!doctype html>
   #hud{position:fixed;left:12px;bottom:12px;color:#fff;background:rgba(17,20,24,.86);padding:6px 10px;border-radius:6px}
 </style>
 <canvas id="c"></canvas>
-<div id="hud">Mullion probe. Press F for full screen. Strip: 36 blocks, host ms.</div>
+<div id="hud">Mullion probe. Press F for full screen. Strip: 38 blocks, host ms.</div>
 <script>
-const BLOCKS=36, SYNC=2, DATA=32;
+const BLOCKS=38, SYNC=2, DATA=32;
 const c=document.getElementById('c'), g=c.getContext('2d',{alpha:false});
 function fit(){c.width=innerWidth*devicePixelRatio|0;c.height=innerHeight*devicePixelRatio|0}
 addEventListener('resize',fit);fit();
@@ -23,7 +23,7 @@ function encode(ms){
   const v=ms>>>0; const out=new Uint8Array(BLOCKS); out[0]=1; out[1]=0;
   for(let i=0;i<DATA;i++) out[SYNC+i]=(v>>>(31-i))&1;
   const pop=x=>{x=x-((x>>>1)&0x55555555);x=(x&0x33333333)+((x>>>2)&0x33333333);return(((x+(x>>>4))&0x0F0F0F0F)*0x01010101)>>>24};
-  out[SYNC+DATA]=pop(v&0xFFFF)&1; out[SYNC+DATA+1]=pop(v>>>16)&1; return out;
+  out[SYNC+DATA]=pop(v&0xFFFF)&1; out[SYNC+DATA+1]=pop(v>>>16)&1; out[BLOCKS-2]=0; out[BLOCKS-1]=1; return out;
 }
 let t0=performance.now(), frames=0;
 function paint(){
