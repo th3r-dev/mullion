@@ -9,6 +9,9 @@
 //! `POST /screens/layout` with `{"cells":[{"display_id":7,"col":-1,"row":0}]}`
 //! moves screens and answers with the new `/screens`. A layout that cannot be
 //! placed is 409 with the reason.
+//!
+//! Discovery: `GET /hello` says who this host is, so a receiver sweeping the
+//! LAN can tell a Mullion host from any other HTTP server and list it by name.
 
 use std::io::Read;
 use std::net::SocketAddr;
@@ -65,6 +68,33 @@ pub struct Signaling {
     handler: Arc<dyn OfferHandler>,
     host_name: String,
     config: serde_json::Value,
+    lan_ips: Vec<String>,
+}
+
+/// `GET /hello`: enough for a receiver to list this host and connect to it.
+#[derive(Serialize)]
+struct Hello<'a> {
+    /// Always "mullion"; a sweep ignores anything else answering on the port.
+    app: &'static str,
+    name: &'a str,
+    version: &'static str,
+    platform: &'static str,
+    port: u16,
+    /// LAN addresses this host answers on (not loopback).
+    ips: &'a [String],
+    /// Extend mode allowed (virtual displays).
+    extend: bool,
+    /// Receivers connected right now.
+    receivers: usize,
+}
+
+fn platform_name() -> &'static str {
+    match std::env::consts::OS {
+        "macos" => "macOS",
+        "windows" => "Windows",
+        "linux" => "Linux",
+        other => other,
+    }
 }
 
 impl Signaling {
@@ -74,12 +104,18 @@ impl Signaling {
         let server = Server::http(addr).map_err(|e| {
             anyhow!("Can't listen on port {}: {}. Pick another with --port.", addr.port(), e)
         })?;
-        Ok(Self { server, handler, host_name, config: serde_json::Value::Null })
+        Ok(Self { server, handler, host_name, config: serde_json::Value::Null, lan_ips: Vec::new() })
     }
 
     /// Effective switches, served at `/config`.
     pub fn with_config(mut self, config: serde_json::Value) -> Self {
         self.config = config;
+        self
+    }
+
+    /// LAN addresses listed by `/hello`.
+    pub fn with_lan_ips(mut self, ips: Vec<String>) -> Self {
+        self.lan_ips = ips;
         self
     }
 
@@ -210,6 +246,22 @@ impl Signaling {
                     .with_header(Header::from_bytes("Cache-Control", "public, max-age=86400").unwrap());
                 req.respond(with_cors(resp)).context("respond")
             }
+            ("/hello", Method::Get) => {
+                let hello = Hello {
+                    app: "mullion",
+                    name: &self.host_name,
+                    version: env!("CARGO_PKG_VERSION"),
+                    platform: platform_name(),
+                    port: self.local_addr().port(),
+                    ips: &self.lan_ips,
+                    extend: self.config.get("extend").and_then(|v| v.as_bool()).unwrap_or(true),
+                    receivers: self.handler.devices().devices.iter().filter(|d| d.connected).count(),
+                };
+                let resp = Response::from_data(serde_json::to_vec(&hello)?)
+                    .with_header(Header::from_bytes("Content-Type", "application/json").unwrap())
+                    .with_header(Header::from_bytes("Cache-Control", "no-store").unwrap());
+                req.respond(with_cors(resp)).context("respond")
+            }
             ("/health", Method::Get) => {
                 let resp = Response::from_string(format!("mullion-host {}\n", self.host_name));
                 req.respond(with_cors(resp)).context("respond")
@@ -246,6 +298,9 @@ fn with_cors<R: Read>(r: Response<R>) -> Response<R> {
     r.with_header(Header::from_bytes("Access-Control-Allow-Origin", "*").unwrap())
         .with_header(Header::from_bytes("Access-Control-Allow-Methods", "POST, GET, OPTIONS").unwrap())
         .with_header(Header::from_bytes("Access-Control-Allow-Headers", "Content-Type").unwrap())
+        // Private Network Access: a receiver page from another origin (the app's
+        // WebView, a page saved on the tablet) may ask a LAN address.
+        .with_header(Header::from_bytes("Access-Control-Allow-Private-Network", "true").unwrap())
 }
 
 fn respond_status(req: Request, code: u16, msg: &str) -> Result<()> {
@@ -385,6 +440,31 @@ mod tests {
             drop(desk);
             Ok(self.view())
         }
+    }
+
+    #[test]
+    fn hello_identifies_the_host_for_discovery() {
+        let s = Signaling::bind("127.0.0.1:0".parse().unwrap(), Arc::new(echo_handler), "TEST-MAC".into())
+            .unwrap()
+            .with_config(serde_json::json!({"extend": false}))
+            .with_lan_ips(vec!["10.0.0.5".into()]);
+        let addr = s.local_addr();
+        std::thread::spawn(move || s.run());
+        let a = agent();
+        let r = a.get(&format!("http://{addr}/hello")).call().unwrap();
+        assert_eq!(r.header("Access-Control-Allow-Origin"), Some("*"));
+        let v: serde_json::Value = r.into_json().unwrap();
+        assert_eq!(v["app"], "mullion");
+        assert_eq!(v["name"], "TEST-MAC");
+        assert_eq!(v["port"], addr.port());
+        assert_eq!(v["ips"], serde_json::json!(["10.0.0.5"]));
+        assert_eq!(v["extend"], false);
+        assert_eq!(v["receivers"], 0);
+        assert!(v["version"].as_str().unwrap().contains('.'));
+        // A preflight from another origin on the LAN is allowed.
+        let r = a.request("OPTIONS", &format!("http://{addr}/hello")).set("Access-Control-Request-Private-Network", "true").call().unwrap();
+        assert_eq!(r.status(), 204);
+        assert_eq!(r.header("Access-Control-Allow-Private-Network"), Some("true"));
     }
 
     #[test]

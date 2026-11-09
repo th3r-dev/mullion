@@ -34,10 +34,7 @@
     sheet.style.pointerEvents = p > 0.5 ? 'auto' : 'none';
   }});
 
-  function baseUrl(ip) {
-    const sameHost = /^https?:$/.test(location.protocol) && location.hostname === ip && location.port;
-    return `http://${ip}:${sameHost ? location.port : 47100}`;
-  }
+  const baseUrl = (ip) => `http://${ip}:${mullion.portFor(ip)}`;
 
   function open(ip) {
     hostIp = ip; lastFocus = document.activeElement; opened = true;

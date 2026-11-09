@@ -115,14 +115,105 @@
   toolbar.addEventListener('pointermove', () => { clearTimeout(hideTimer); hideTimer = setTimeout(() => { toolbarY.to(-1.6); hud.classList.add('dim'); }, 2200); });
 
   function connect() {
-    const ip = ipEl.value.trim();
-    if (!ip) { hint.textContent = 'Enter the IP shown by Mullion on the Mac.'; hint.classList.add('err'); ipEl.focus(); return; }
-    localStorage.setItem('mullion.host', ip);
+    const target = mullion.parseTarget(ipEl.value);
+    if (!target) { hint.textContent = 'Enter the IP shown by Mullion on the Mac.'; hint.classList.add('err'); ipEl.focus(); return; }
+    const ip = target.ip;
+    localStorage.setItem('mullion.host', ipEl.value.trim());
     mullion.setDeviceName(nameEl.value);
     nameOut.textContent = nameEl.value || mullion.deviceName();
     hint.textContent = `Connecting to ${ip}`; hint.classList.remove('err');
-    mullion.connect(ip, video, { mode, name: nameEl.value });
+    mullion.connect(ip, video, { mode, name: nameEl.value, port: target.port });
   }
+  // --- Nearby: Mullion hosts found on this network (receiver.js scan) ---
+  const hostsEl = $('hosts'), nearbyStatus = $('nearbyStatus'), nearbyEmpty = $('nearbyEmpty');
+  const scanBtn = $('scanBtn'), scanBar = $('scanBar'), scanFill = $('scanFill');
+  const rows = new Map(); // "name:port" -> { li, btn, host, stale }
+  let scanCtl = null, lastScan = 0, stagger = 0, fillMax = 0;
+  const fill = spring({ from: 0, damping: 1, response: 0.4, on: (f) => { scanFill.style.transform = `scaleX(${f})`; } });
+  scanBar.classList.add('idle');
+
+  const plural = (n, one, many) => (n === 1 ? `1 ${one}` : `${n} ${many}`);
+  function hostMeta(h) {
+    const parts = [h.ip];
+    if (h.platform) parts.push(h.platform);
+    if (h.receivers > 0) parts.push(plural(h.receivers, 'device', 'devices'));
+    if (h.extend === false) parts.push('Mirror only');
+    return parts.join(' · ');
+  }
+  function paintRow(r) {
+    const h = r.host;
+    r.btn.querySelector('.host-name').textContent = h.name;
+    r.btn.querySelector('.host-meta').textContent = hostMeta(h);
+    r.btn.querySelector('.tag').hidden = !mullion.isLastUsed(h);
+    r.btn.title = `Connect to ${h.name}`;
+    r.btn.setAttribute('aria-label', `${h.name}, ${hostMeta(h)}. Connect.`);
+  }
+  function showHost(h) {
+    const k = h.name + ':' + h.port;
+    const have = rows.get(k);
+    if (have) { have.host = h; have.stale = false; paintRow(have); return; }
+    const li = document.createElement('li');
+    const btn = document.createElement('button');
+    btn.type = 'button'; btn.className = 'host';
+    btn.innerHTML = '<span class="host-icon"><svg class="i" aria-hidden="true"><use href="#i-computer"/></svg></span>'
+      + '<span class="host-text"><span class="host-name"></span><span class="host-meta"></span></span>'
+      + '<span class="tag" hidden>Last used</span><svg class="i go" aria-hidden="true"><use href="#i-chevron"/></svg>';
+    li.appendChild(btn);
+    const r = { li, btn, host: h, stale: false };
+    // Materialize on a spring, a beat after the row before it.
+    r.appear = spring({ from: 0, damping: 1, response: 0.3, on: (p) => { btn.style.opacity = p; btn.style.transform = `translateY(${(1 - p) * 8}px) scale(${0.98 + 0.02 * p})`; } });
+    btn.addEventListener('pointerdown', () => btn.classList.add('pressed'));
+    ['pointerup', 'pointercancel', 'pointerleave'].forEach((ev) => btn.addEventListener(ev, () => btn.classList.remove('pressed')));
+    btn.addEventListener('click', () => choose(r.host));
+    rows.set(k, r);
+    paintRow(r);
+    // The host used last time goes first; the rest in the order they answered.
+    if (!btn.querySelector('.tag').hidden) hostsEl.prepend(li); else hostsEl.appendChild(li);
+    setTimeout(() => r.appear.to(1), 45 * stagger++);
+    nearbyEmpty.textContent = '';
+  }
+  function choose(h) {
+    // Show the port only when it is not the default, so the field stays familiar.
+    ipEl.value = h.port === 47100 ? h.ip : `${h.ip}:${h.port}`;
+    if (h.extend === false && mode === 'extend') setMode('mirror', true);
+    connect();
+  }
+  function stopScan() {
+    if (!scanCtl) return;
+    scanCtl.abort(); scanCtl = null;
+    scanBtn.disabled = false; scanBar.classList.add('idle');
+    nearbyStatus.textContent = rows.size ? plural(rows.size, 'found', 'found') : '';
+  }
+  async function runScan() {
+    stopScan();
+    const ctl = new AbortController(); scanCtl = ctl;
+    for (const r of rows.values()) r.stale = true;
+    stagger = 0; fillMax = 0; fill.set(0);
+    scanBar.classList.remove('idle'); scanBtn.disabled = true;
+    nearbyEmpty.textContent = '';
+    nearbyStatus.textContent = 'Looking on this network';
+    const typed = mullion.parseTarget(ipEl.value);
+    const list = await mullion.scan({
+      signal: ctl.signal,
+      seeds: typed ? [typed.ip] : [],
+      port: typed && typed.port !== 47100 ? typed.port : undefined,
+      onFound: (h) => { if (scanCtl !== ctl) return; showHost(h); nearbyStatus.textContent = `Looking on this network · ${plural(rows.size, 'found', 'found')}`; },
+      // The sweep can grow as it learns new networks; the bar only moves forward.
+      onProgress: (d, t) => { if (scanCtl !== ctl || !t) return; const f = d / t; if (f > fillMax) { fillMax = f; fill.to(f); } },
+    });
+    if (scanCtl !== ctl) return;
+    scanCtl = null; lastScan = Date.now();
+    scanBtn.disabled = false;
+    fill.to(1); setTimeout(() => scanBar.classList.add('idle'), 260);
+    for (const [k, r] of rows) {
+      if (!r.stale) continue;
+      rows.delete(k); r.appear.to(0); setTimeout(() => r.li.remove(), 260);
+    }
+    nearbyStatus.textContent = list.length ? plural(list.length, 'found', 'found') : '';
+    if (!list.length) nearbyEmpty.textContent = 'No Mac found on this network. Open Mullion on the Mac, or type the IP it shows.';
+  }
+  scanBtn.addEventListener('click', runScan);
+
   dcBtn.addEventListener('click', () => mullion.disconnect());
   modeBtn.addEventListener('click', () => { setMode(mode === 'extend' ? 'mirror' : 'extend', true); connect(); });
   fsBtn.addEventListener('click', () => { const d = document.documentElement; if (!document.fullscreenElement) (d.requestFullscreen || d.webkitRequestFullscreen).call(d); else (document.exitFullscreen || document.webkitExitFullscreen).call(document); });
@@ -139,10 +230,11 @@
     if (ip) window.mullionLayout.open(ip);
   });
   screensSetupBtn.addEventListener('click', () => {
-    const ip = ipEl.value.trim();
+    const target = mullion.parseTarget(ipEl.value);
+    const ip = target && target.ip;
     if (!ip) { hint.textContent = 'Enter the IP shown by Mullion on the Mac.'; hint.classList.add('err'); ipEl.focus(); return; }
     hint.classList.remove('err'); hint.textContent = '';
-    localStorage.setItem('mullion.host', ip);
+    localStorage.setItem('mullion.host', ipEl.value.trim());
     window.mullionLayout.open(ip);
   });
   document.addEventListener('fullscreenchange', syncFullscreen);
@@ -154,6 +246,11 @@
     const host = s.hostName || s.hostIp || 'the Mac';
     if (s.status === lastStatus && s.status !== 'error') return;
     lastStatus = s.status;
+    // Scanning competes with the stream for Wi-Fi; stop while connected and
+    // look again on the way back if the last look is stale.
+    if (s.status === 'connecting') stopScan();
+    if (s.status === 'streaming') mullion.rememberHost(s.hostIp, mullion.portFor(s.hostIp));
+    if ((s.status === 'idle' || s.status === 'lost' || s.status === 'error') && !scanCtl && Date.now() - lastScan > 30000) setTimeout(runScan, 400);
     switch (s.status) {
       case 'connecting': hint.textContent = `Connecting to ${s.hostIp}`; break;
       case 'connected': hint.textContent = `Connected to ${host}`; break;
@@ -199,6 +296,7 @@
   const q = new URLSearchParams(location.search);
   if (q.get('host')) ipEl.value = q.get('host');
   if (q.get('auto') === '1' && ipEl.value) connect();
+  else runScan();
 
   // Shared with layout.js so every surface moves on the same spring.
   window.mullionUI = { spring, toast };
