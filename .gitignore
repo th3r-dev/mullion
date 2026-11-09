@@ -1,0 +1,5 @@
+target/
+*.log
+/logs/*.jsonl
+/logs/*.out
+/crates/app/dist/

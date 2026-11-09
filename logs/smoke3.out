@@ -1,0 +1,11 @@
+2026-11-09T09:03:07.807528Z  INFO mullion_host: platform: macOS (ScreenCaptureKit + VideoToolbox)
+2026-11-09T09:03:07.807758Z  INFO mullion_host: timing log: logs/smoke3.jsonl
+2026-11-09T09:03:07.808144Z  INFO mullion_host::session: WebRTC media on UDP 10.250.128.41:56109, 127.0.0.1:51219, 10.43.77.126:64784
+2026-11-09T09:03:07.808240Z  INFO mullion_host: signaling on http://10.43.77.126:47100/offer  probe page: http://10.43.77.126:47100/probe
+Mullion host Theeraphats-MacBook-Pro.local: enter 10.43.77.126 on the tablet.
+2026-11-09T09:03:10.526843Z  INFO mullion_host::signaling: offer from 127.0.0.1:60841 answered
+2026-11-09T09:03:10.581285Z  INFO mullion_host::session: ice: Checking
+2026-11-09T09:03:10.642940Z  INFO mullion_host::session: ice: Completed
+2026-11-09T09:03:10.751065Z  INFO mullion_host::platform::macos::encode: VideoToolbox H.264 session: hardware=true, 10000 kbps
+2026-11-09T09:03:10.803328Z  WARN mullion_host::session: pipeline: Mullion needs Screen Recording to show this Mac on your tablet. Open System Settings > Privacy & Security > Screen & System Audio Recording. (The user declined TCCs for application, window, display capture)
+2026-11-09T09:03:10.803431Z  INFO mullion_host::session: session ended: pipeline failed (0 frames sent)

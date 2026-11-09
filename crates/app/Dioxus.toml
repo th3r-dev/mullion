@@ -1,0 +1,14 @@
+[application]
+name = "mullion"
+
+[bundle]
+identifier = "app.mullion.tablet"
+publisher = "Mullion"
+
+[android]
+min_sdk = 26
+
+# PoC 1 signaling is plain HTTP on the LAN (SRS A-7, A-12); the stock
+# config only permits cleartext to 127.0.0.1.
+[android.application]
+uses_cleartext_traffic = true

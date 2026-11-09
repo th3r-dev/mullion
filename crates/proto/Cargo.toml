@@ -1,0 +1,11 @@
+[package]
+name = "mullion-proto"
+description = "Mullion wire messages, probe strip, clock sync and H.264 bitstream helpers. No OS calls."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }

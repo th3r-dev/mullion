@@ -1,0 +1,7 @@
+2026-11-09T09:01:20.999971Z  INFO mullion_host: platform: macOS (ScreenCaptureKit + VideoToolbox)
+2026-11-09T09:01:21.000379Z  INFO mullion_host: timing log: logs/smoke1.jsonl
+2026-11-09T09:01:21.000708Z  INFO mullion_host::session: WebRTC media on UDP 10.43.77.126:60809, 10.250.128.41:60809, 127.0.0.1:60809
+2026-11-09T09:01:21.001002Z  INFO mullion_host: signaling on http://10.43.77.126:47100/offer  probe page: http://10.43.77.126:47100/probe
+Mullion host Theeraphats-MacBook-Pro.local: enter 10.43.77.126 on the tablet.
+2026-11-09T09:01:30.692046Z  INFO mullion_host::signaling: offer from 127.0.0.1:60054 answered
+2026-11-09T09:01:30.698790Z  INFO mullion_host::session: ice: Checking
