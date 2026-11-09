@@ -12,6 +12,10 @@
 //!
 //! Discovery: `GET /hello` says who this host is, so a receiver sweeping the
 //! LAN can tell a Mullion host from any other HTTP server and list it by name.
+//!
+//! Web port: the same routes are also served on port 80 by default, so the
+//! bare address (http://10.43.77.126) opens the receiver in any browser. If
+//! that port cannot be had, the host carries on with the main port only.
 
 use std::io::Read;
 use std::net::SocketAddr;
@@ -65,6 +69,8 @@ struct AnswerBody<'a> {
 
 pub struct Signaling {
     server: Server,
+    /// Second listener on the web port (80), same routes.
+    web: Option<Server>,
     handler: Arc<dyn OfferHandler>,
     host_name: String,
     config: serde_json::Value,
@@ -104,13 +110,44 @@ impl Signaling {
         let server = Server::http(addr).map_err(|e| {
             anyhow!("Can't listen on port {}: {}. Pick another with --port.", addr.port(), e)
         })?;
-        Ok(Self { server, handler, host_name, config: serde_json::Value::Null, lan_ips: Vec::new() })
+        Ok(Self { server, web: None, handler, host_name, config: serde_json::Value::Null, lan_ips: Vec::new() })
     }
 
     /// Effective switches, served at `/config`.
     pub fn with_config(mut self, config: serde_json::Value) -> Self {
         self.config = config;
         self
+    }
+
+    /// Also listen on `port` (0 = off) at the main listener's address. A port
+    /// that cannot be had (in use, or privileged on this OS) is a warning, not
+    /// an error: the main port keeps working.
+    pub fn with_web_port(self, port: u16) -> Self {
+        if port == 0 || port == self.local_addr().port() {
+            return self;
+        }
+        let addr = SocketAddr::new(self.local_addr().ip(), port);
+        self.with_web_addr(addr)
+    }
+
+    fn with_web_addr(mut self, addr: SocketAddr) -> Self {
+        match Server::http(addr) {
+            Ok(s) => {
+                info!("also serving on http://{addr} (web port)");
+                self.web = Some(s);
+            }
+            Err(e) => warn!("web port {}: {e}; the receiver stays on port {} only", addr.port(), self.local_addr().port()),
+        }
+        self
+    }
+
+    /// The web port actually being served, if any.
+    pub fn web_port(&self) -> Option<u16> {
+        self.web.as_ref().map(|s| match s.server_addr() {
+            tiny_http::ListenAddr::IP(a) => a.port(),
+            #[cfg(unix)]
+            tiny_http::ListenAddr::Unix(_) => 0,
+        })
     }
 
     /// LAN addresses listed by `/hello`.
@@ -127,11 +164,25 @@ impl Signaling {
         }
     }
 
-    /// Serve forever on the current thread.
-    pub fn run(self) {
-        for req in self.server.incoming_requests() {
-            let resp = self.handle(req);
-            if let Err(e) = resp {
+    /// Serve forever on the current thread (the web port on a second thread).
+    pub fn run(mut self) {
+        let web = self.web.take();
+        let this = Arc::new(self);
+        if let Some(web) = web {
+            let t = this.clone();
+            std::thread::Builder::new()
+                .name("mullion-web".into())
+                .spawn(move || {
+                    for req in web.incoming_requests() {
+                        if let Err(e) = t.handle(req) {
+                            warn!("web port: {e:#}");
+                        }
+                    }
+                })
+                .expect("spawn web port thread");
+        }
+        for req in this.server.incoming_requests() {
+            if let Err(e) = this.handle(req) {
                 warn!("signaling: {e:#}");
             }
         }
@@ -205,7 +256,7 @@ impl Signaling {
                     .find(|h| h.field.equiv("Host"))
                     .map(|h| h.value.as_str().split(':').next().unwrap_or("").to_string())
                     .unwrap_or_default();
-                let resp = Response::from_string(receiver_html(&host_ip))
+                let resp = Response::from_string(receiver_html(&host_ip, self.local_addr().port()))
                     .with_header(Header::from_bytes("Content-Type", "text/html; charset=utf-8").unwrap())
                     .with_header(Header::from_bytes("Cache-Control", "no-store").unwrap());
                 req.respond(with_cors(resp)).context("respond")
@@ -440,6 +491,35 @@ mod tests {
             drop(desk);
             Ok(self.view())
         }
+    }
+
+    #[test]
+    fn web_port_serves_the_same_routes() {
+        let s = Signaling::bind("127.0.0.1:0".parse().unwrap(), Arc::new(echo_handler), "TEST-MAC".into())
+            .unwrap()
+            .with_web_addr("127.0.0.1:0".parse().unwrap());
+        let main = s.local_addr();
+        let web = s.web_port().expect("web listener bound");
+        assert_ne!(web, main.port());
+        std::thread::spawn(move || s.run());
+        let a = agent();
+        let page = a.get(&format!("http://127.0.0.1:{web}/")).call().unwrap().into_string().unwrap();
+        assert!(page.contains("mullionLayout"), "the receiver page at /");
+        let v: serde_json::Value = a.get(&format!("http://127.0.0.1:{web}/hello")).call().unwrap().into_json().unwrap();
+        assert_eq!(v["port"], main.port(), "/hello names the main port, where offers go");
+        assert_eq!(a.get(&format!("http://{main}/health")).call().unwrap().status(), 200);
+    }
+
+    #[test]
+    fn web_port_taken_is_not_fatal() {
+        let busy = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let taken = busy.local_addr().unwrap();
+        let s = Signaling::bind("127.0.0.1:0".parse().unwrap(), Arc::new(echo_handler), "TEST-MAC".into())
+            .unwrap()
+            .with_web_addr(taken);
+        assert_eq!(s.web_port(), None);
+        let s = s.with_web_port(0);
+        assert_eq!(s.web_port(), None, "0 is off");
     }
 
     #[test]

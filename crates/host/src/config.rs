@@ -27,6 +27,9 @@ pub struct Switches {
     pub debug: bool,
     /// MULLION_PORT, MULLION_FPS, MULLION_BITRATE_KBPS, MULLION_WIDTH, MULLION_HEIGHT.
     pub port: u16,
+    /// MULLION_WEB_PORT: also serve on this port, so the bare address
+    /// (http://10.43.77.126) opens the receiver in any browser. 0 = off.
+    pub web_port: u16,
     pub fps: u32,
     pub bitrate_kbps: u32,
     pub width: u32,
@@ -44,6 +47,7 @@ impl Default for Switches {
             multi_session: true,
             debug: false,
             port: mullion_proto::signal::DEFAULT_PORT,
+            web_port: 80,
             fps: 60,
             bitrate_kbps: 10_000,
             width: 1920,
@@ -82,6 +86,9 @@ impl Switches {
         if let Some(v) = n("MULLION_PORT") {
             s.port = v as u16;
         }
+        if let Some(v) = n("MULLION_WEB_PORT") {
+            s.web_port = v as u16;
+        }
         if let Some(v) = n("MULLION_FPS") {
             s.fps = v as u32;
         }
@@ -104,9 +111,9 @@ impl Switches {
     /// One line per switch, for the startup banner.
     pub fn banner(&self) -> String {
         format!(
-            "extend={} grace={}s arrange={} probe={} require_hw={} multi_session={} debug={} {}x{}@{} {}kbps port={}",
+            "extend={} grace={}s arrange={} probe={} require_hw={} multi_session={} debug={} {}x{}@{} {}kbps port={} web_port={}",
             self.extend, self.display_grace_secs, self.arrange, self.probe, self.require_hw_encoder, self.multi_session, self.debug,
-            self.width, self.height, self.fps, self.bitrate_kbps, self.port
+            self.width, self.height, self.fps, self.bitrate_kbps, self.port, self.web_port
         )
     }
 }
@@ -134,6 +141,7 @@ mod tests {
             ("MULLION_DISPLAY_GRACE_SECS", "0"),
             ("MULLION_PROBE", "nonsense"),
             ("MULLION_PORT", "5000"),
+            ("MULLION_WEB_PORT", "0"),
             ("MULLION_FPS", "abc"),
         ]
         .into_iter()
@@ -143,6 +151,8 @@ mod tests {
         assert_eq!(s.display_grace_secs, 0);
         assert!(!s.probe, "garbage keeps the default");
         assert_eq!(s.port, 5000);
+        assert_eq!(s.web_port, 0, "0 turns the web port off");
+        assert_eq!(Switches::default().web_port, 80);
         assert_eq!(s.fps, 60);
         assert!(s.arrange && s.multi_session && s.require_hw_encoder && !s.debug);
     }
