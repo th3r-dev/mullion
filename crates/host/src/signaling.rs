@@ -10,7 +10,8 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use anyhow::{anyhow, Context, Result};
-use mullion_proto::signal::{parse_offer, MAX_BODY_BYTES};
+use mullion_proto::signal::{clean_device_name, parse_offer, valid_device_id, Mode, MAX_BODY_BYTES};
+use crate::session::{DeviceInfo, DeviceStatus};
 use serde::Serialize;
 use tiny_http::{Header, Method, Request, Response, Server, StatusCode};
 use tracing::{info, warn};
@@ -19,15 +20,18 @@ use crate::probe_page::{receiver_html, PROBE_HTML};
 
 /// What the server hands a validated offer to. Returns the answer SDP.
 pub trait OfferHandler: Send + Sync + 'static {
-    fn answer(&self, offer_sdp: &str, peer: SocketAddr) -> Result<String>;
+    fn answer(&self, offer_sdp: &str, mode: Mode, device: DeviceInfo, peer: SocketAddr) -> Result<String>;
+    fn devices(&self) -> Vec<DeviceStatus> {
+        Vec::new()
+    }
 }
 
 impl<F> OfferHandler for F
 where
-    F: Fn(&str, SocketAddr) -> Result<String> + Send + Sync + 'static,
+    F: Fn(&str, Mode, SocketAddr) -> Result<String> + Send + Sync + 'static,
 {
-    fn answer(&self, offer_sdp: &str, peer: SocketAddr) -> Result<String> {
-        (self)(offer_sdp, peer)
+    fn answer(&self, offer_sdp: &str, mode: Mode, _device: DeviceInfo, peer: SocketAddr) -> Result<String> {
+        (self)(offer_sdp, mode, peer)
     }
 }
 
@@ -103,9 +107,13 @@ impl Signaling {
                     Err(413) => return respond_status(req, 413, "Offer too large"),
                     Err(_) => return respond_status(req, 400, "Body must be JSON {\"sdp\":\"v=0...\"}"),
                 };
-                match self.handler.answer(&offer.sdp, peer) {
+                let device = DeviceInfo {
+                    id: valid_device_id(&offer.device_id).map(str::to_string),
+                    name: clean_device_name(&offer.device_name, &format!("Tablet {}", peer.ip())),
+                };
+                match self.handler.answer(&offer.sdp, offer.mode, device, peer) {
                     Ok(sdp) => {
-                        info!("offer from {peer} answered");
+                        info!("offer from {peer} answered ({:?})", offer.mode);
                         let body = serde_json::to_vec(&AnswerBody { r#type: "answer", sdp: &sdp, host_name: &self.host_name })?;
                         let resp = Response::from_data(body)
                             .with_header(Header::from_bytes("Content-Type", "application/json").unwrap());
@@ -133,6 +141,11 @@ impl Signaling {
                     .unwrap_or_default();
                 let resp = Response::from_string(receiver_html(&host_ip))
                     .with_header(Header::from_bytes("Content-Type", "text/html; charset=utf-8").unwrap());
+                req.respond(with_cors(resp)).context("respond")
+            }
+            ("/devices", Method::Get) => {
+                let body = serde_json::to_vec(&self.handler.devices())?;
+                let resp = Response::from_data(body).with_header(Header::from_bytes("Content-Type", "application/json").unwrap());
                 req.respond(with_cors(resp)).context("respond")
             }
             ("/health", Method::Get) => {
@@ -167,7 +180,7 @@ mod tests {
         addr
     }
 
-    fn echo_handler(sdp: &str, _peer: SocketAddr) -> Result<String> {
+    fn echo_handler(sdp: &str, _mode: Mode, _peer: SocketAddr) -> Result<String> {
         if sdp.contains("m=video") {
             Ok("v=0\r\nm=video 9 UDP/TLS/RTP/SAVPF 108\r\na=fmtp:108 packetization-mode=1;profile-level-id=42e01f\r\n".into())
         } else {

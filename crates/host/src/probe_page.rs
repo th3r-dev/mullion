@@ -58,23 +58,28 @@ pub fn receiver_html(host_ip: &str) -> String {
 <style>
   html,body{{margin:0;background:#0F1113;color:#ECEDEE;font:15px system-ui;height:100%}}
   #bar{{display:flex;gap:8px;align-items:center;padding:8px 12px;background:#111418}}
-  input{{font:inherit;padding:6px 8px;border-radius:6px;border:1px solid #2A2E33;background:#0F1113;color:#ECEDEE;width:160px}}
+  input,select{{font:inherit;padding:6px 8px;border-radius:6px;border:1px solid #2A2E33;background:#0F1113;color:#ECEDEE}} input{{width:160px}}
   button{{font:inherit;padding:6px 12px;border-radius:6px;border:0;background:#5B93FF;color:#0F1113;font-weight:600}}
   video{{display:block;width:100vw;height:calc(100vh - 44px);background:#000;object-fit:contain}}
   #hud{{position:fixed;right:12px;bottom:12px;background:rgba(17,20,24,.86);padding:6px 10px;border-radius:6px;font-size:12px;font-variant-numeric:tabular-nums;white-space:pre}}
   .fs #bar{{display:none}} .fs video{{height:100vh}}
 </style>
-<div id="bar"><input id="ip" value="{host_ip}"><button id="go">Connect</button><button id="full">Full screen</button><span id="st">idle</span></div>
+<div id="bar"><input id="ip" value="{host_ip}"><input id="name" placeholder="This device's name" style="width:140px">
+<select id="mode"><option value="mirror">Mirror</option><option value="extend">Extend</option></select>
+<button id="go">Connect</button><button id="full">Full screen</button><span id="st">idle</span></div>
 <video id="v" muted autoplay playsinline></video>
 <div id="hud"></div>
 <script>{js}</script>
 <script>
   const ip=document.getElementById('ip'), st=document.getElementById('st'), hud=document.getElementById('hud');
-  document.getElementById('go').onclick=()=>mullion.connect(ip.value,document.getElementById('v'));
+  const modeEl=document.getElementById('mode'); modeEl.value=localStorage.getItem('mullion.mode')||'mirror';
+  const nameEl=document.getElementById('name'); nameEl.value=mullion.deviceName();
+  document.getElementById('go').onclick=()=>{{localStorage.setItem('mullion.mode',modeEl.value);mullion.setDeviceName(nameEl.value);mullion.connect(ip.value,document.getElementById('v'),{{mode:modeEl.value,name:nameEl.value}});}};
+  modeEl.onchange=()=>{{ if(mullion.stats().status!=='idle') document.getElementById('go').click(); }};
   document.getElementById('full').onclick=()=>{{document.body.classList.add('fs');document.documentElement.requestFullscreen&&document.documentElement.requestFullscreen()}};
   mullion.onStatus(s=>{{st.textContent=s.status+(s.error?' — '+s.error:'')+(s.hostName?' · '+s.hostName:'');}});
   setInterval(()=>{{const s=mullion.stats();const f=x=>x==null?'–':x.toFixed(1);hud.textContent=
-`${{s.status}} ${{s.videoWidth}}x${{s.videoHeight}}  offset ${{f(s.offsetMs)}} rtt ${{f(s.rttMs)}}
+`${{s.mode}} ${{s.status}} ${{s.videoWidth}}x${{s.videoHeight}}  offset ${{f(s.offsetMs)}} rtt ${{f(s.rttMs)}}
 presented ${{s.presented}} decoded ${{s.decoded}} fail ${{s.decodeFail}} dropped ${{s.dropped}}
 g2g last ${{f(s.g2gLast)}} p50 ${{f(s.g2gP50)}} p95 ${{f(s.g2gP95)}} ms
 jbt ${{s.caps?(s.caps.jitter_buffer_target_supported?'yes '+s.caps.jitter_buffer_target_ms:'no'):'–'}}`;}},250);

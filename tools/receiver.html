@@ -11,6 +11,8 @@
 </style>
 <div id="bar">
   <input id="ip" placeholder="Host IP" value="">
+  <input id="name" placeholder="Device name" style="width:120px">
+  <select id="mode"><option value="mirror">Mirror</option><option value="extend">Extend</option></select>
   <button id="go">Connect</button>
   <span id="st">idle</span>
 </div>
@@ -20,7 +22,8 @@
 <script>
   const ip=document.getElementById('ip'), st=document.getElementById('st'), hud=document.getElementById('hud');
   ip.value=new URLSearchParams(location.search).get('host')||localStorage.getItem('mullion.host')||'';
-  document.getElementById('go').onclick=()=>{localStorage.setItem('mullion.host',ip.value);mullion.connect(ip.value,document.getElementById('v'));};
+  document.getElementById('go').onclick=()=>{localStorage.setItem('mullion.host',ip.value);const n=document.getElementById('name').value; mullion.setDeviceName(n); mullion.connect(ip.value,document.getElementById('v'),{mode:document.getElementById('mode').value,name:n});};
+  document.getElementById('name').value=mullion.deviceName();
   mullion.onStatus(s=>{st.textContent=s.status+(s.error?' — '+s.error:'')+(s.hostName?' · '+s.hostName:'');});
   setInterval(()=>{const s=mullion.stats();hud.textContent=
 `status ${s.status}  ${s.videoWidth}x${s.videoHeight}

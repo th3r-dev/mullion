@@ -8,6 +8,15 @@ use anyhow::Result;
 #[cfg(target_os = "macos")]
 pub mod macos;
 
+/// Which display a pipeline captures.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Source {
+    /// The main display (Mirror mode).
+    Main,
+    /// The host-created virtual display (Extend mode), by platform display id.
+    Virtual(u32),
+}
+
 /// One encoded access unit, Annex B, ready for the WebRTC packetizer.
 #[derive(Debug, Clone)]
 pub struct EncodedFrame {
@@ -52,8 +61,18 @@ pub trait Pipeline: Send {
 
 pub trait Platform: Send + Sync {
     fn name(&self) -> &'static str;
-    /// Start capturing the main display and encoding it; frames go to `tx`.
-    fn start_pipeline(&self, cfg: &PipelineConfig, tx: Sender<EncodedFrame>) -> Result<Box<dyn Pipeline>>;
+    /// Start capturing `source` and encoding it; frames go to `tx`.
+    fn start_pipeline(&self, source: Source, cfg: &PipelineConfig, tx: Sender<EncodedFrame>) -> Result<Box<dyn Pipeline>>;
+    /// Create the virtual display for Extend mode (step 2). `None` when the OS
+    /// has no way to do it yet.
+    /// `name` shows in the OS display settings; `serial` must differ per device
+    /// so the OS keeps a separate arrangement for each.
+    fn create_virtual_display(&self, w: u32, h: u32, hz: u32, name: &str, serial: u32) -> Result<Option<Box<dyn VirtualDisplay>>>;
+}
+
+/// A virtual monitor; dropping it removes the display.
+pub trait VirtualDisplay: Send + Sync {
+    fn source(&self) -> Source;
 }
 
 /// The platform for the OS this binary was built for.

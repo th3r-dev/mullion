@@ -80,8 +80,8 @@ pub struct ScreenCapture {
 unsafe impl Send for ScreenCapture {}
 
 impl ScreenCapture {
-    pub fn start(cfg: &PipelineConfig, on_frame: FrameCallback) -> Result<Self> {
-        let disp: Retained<SCDisplay> = main_display()?;
+    pub fn start(display_id: Option<u32>, cfg: &PipelineConfig, on_frame: FrameCallback) -> Result<Self> {
+        let disp: Retained<SCDisplay> = pick_display(display_id)?;
         let (dw, dh) = unsafe { (disp.width(), disp.height()) };
         info!("capturing display {} ({}x{} points) -> {}x{}", unsafe { disp.displayID() }, dw, dh, cfg.width, cfg.height);
 
@@ -140,9 +140,9 @@ impl ScreenCapture {
     }
 }
 
-/// The main display via SCShareableContent. A denied Screen Recording
-/// permission surfaces here (T-4) with the BRAND.md wording.
-fn main_display() -> Result<Retained<SCDisplay>> {
+/// The main display (or the one with `want` id) via SCShareableContent. A
+/// denied Screen Recording permission surfaces here (T-4) with the BRAND.md wording.
+fn pick_display(want: Option<u32>) -> Result<Retained<SCDisplay>> {
     let (tx, rx) = mpsc::channel::<Result<Retained<SCShareableContent>>>();
     let block = RcBlock::new(move |content: *mut SCShareableContent, err: *mut NSError| {
         let r = if !content.is_null() {
@@ -163,6 +163,16 @@ fn main_display() -> Result<Retained<SCDisplay>> {
             )
         })?;
     let displays = unsafe { content.displays() };
-    let first = displays.iter().next().ok_or_else(|| anyhow!("No display to capture"))?;
-    Ok(first)
+    if let Some(id) = want {
+        return displays
+            .iter()
+            .find(|d| unsafe { d.displayID() } == id)
+            .ok_or_else(|| anyhow!("Display {id} is not listed by ScreenCaptureKit"));
+    }
+    // The main display is the one whose frame starts at the origin.
+    let main = displays.iter().find(|d| {
+        let f = unsafe { d.frame() };
+        f.origin.x == 0.0 && f.origin.y == 0.0
+    });
+    main.or_else(|| displays.iter().next()).ok_or_else(|| anyhow!("No display to capture"))
 }

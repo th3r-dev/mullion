@@ -20,6 +20,8 @@ pub fn now_ms() -> f64 {
 pub enum Record {
     /// Host side: one encoded frame.
     Frame {
+        /// Capture source: 0 = main display, otherwise the virtual display id.
+        source: u32,
         seq: u64,
         capture_ms: f64,
         encode_done_ms: f64,
@@ -195,7 +197,7 @@ mod tests {
         let log = TimingLog::new(None).unwrap();
         for i in 0..61u64 {
             let t = 1000.0 + i as f64 * (1000.0 / 60.0);
-            log.record(Record::Frame { seq: i, capture_ms: t, encode_done_ms: t + 4.0, send_ms: t + 4.5, bytes: 20_000, idr: i == 0 });
+            log.record(Record::Frame { source: 0, seq: i, capture_ms: t, encode_done_ms: t + 4.0, send_ms: t + 4.5, bytes: 20_000, idr: i == 0 });
         }
         for g in [20.0, 25.0, 30.0, 80.0] {
             log.record(Record::Presented { session: 1, painted_host_ms: 0.0, presented_host_ms: g, glass_to_glass_ms: g });
@@ -218,7 +220,7 @@ mod tests {
         let path = dir.join("t.jsonl");
         let log = TimingLog::new(Some(&path)).unwrap();
         log.record(Record::Event { at_ms: 1.0, what: "start".into() });
-        log.record(Record::Frame { seq: 0, capture_ms: 1.0, encode_done_ms: 2.0, send_ms: 3.0, bytes: 1, idr: true });
+        log.record(Record::Frame { source: 0, seq: 0, capture_ms: 1.0, encode_done_ms: 2.0, send_ms: 3.0, bytes: 1, idr: true });
         log.flush();
         let text = std::fs::read_to_string(&path).unwrap();
         let lines: Vec<&str> = text.lines().collect();
