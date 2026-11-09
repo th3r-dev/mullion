@@ -6,6 +6,7 @@
   <symbol id="i-disconnect" viewBox="0 0 24 24"><path d="m19 5 3-3"/><path d="m2 22 3-3"/><path d="M6.3 20.3a2.4 2.4 0 0 0 3.4 0L12 18l-6-6-2.3 2.3a2.4 2.4 0 0 0 0 3.4Z"/><path d="M7.5 13.5 10 11"/><path d="M10.5 16.5 13 14"/><path d="m12 6 6 6 2.3-2.3a2.4 2.4 0 0 0 0-3.4l-2.6-2.6a2.4 2.4 0 0 0-3.4 0Z"/></symbol>
   <symbol id="i-fullscreen" viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></symbol>
   <symbol id="i-exit-fullscreen" viewBox="0 0 24 24"><path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/></symbol>
+  <symbol id="i-screens" viewBox="0 0 24 24"><rect x="8.5" y="8" width="7" height="8" rx="1.5"/><rect x="1.5" y="9" width="5" height="6" rx="1.2"/><rect x="17.5" y="9" width="5" height="6" rx="1.2"/><rect x="9.5" y="1.5" width="5" height="4.5" rx="1.2"/><rect x="9.5" y="18" width="5" height="4.5" rx="1.2"/></symbol>
   <symbol id="i-heart" viewBox="0 0 24 24"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></symbol>
   <symbol id="i-github" viewBox="0 0 16 16"><path fill="currentColor" stroke="none" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></symbol>
 </svg>
@@ -43,6 +44,7 @@
       </div>
     </div>
     <button class="primary" id="go" type="button"><svg class="i" aria-hidden="true"><use href="#i-connect"/></svg><span>Connect</span></button>
+    <button class="ghost" id="screensSetupBtn" type="button" title="See every screen of the Mac and move them"><svg class="i" aria-hidden="true"><use href="#i-screens"/></svg><span>Arrange screens</span></button>
     <div class="hint" id="hint"></div>
   </div>
   <nav class="links" aria-label="Project">
@@ -56,9 +58,26 @@
   <span class="name" id="nameOut">Tablet</span>
   <span class="sep"></span>
   <button id="modeBtn" type="button" title="Switch between Mirror and Extend"><svg class="i" aria-hidden="true"><use id="modeIcon" href="#i-mirror"/></svg><span id="modeLabel">Mirror</span></button>
+  <button id="screensBtn" type="button" title="See every screen and move them"><svg class="i" aria-hidden="true"><use href="#i-screens"/></svg><span>Screens</span></button>
   <button id="fsBtn" type="button" title="Full screen"><svg class="i" aria-hidden="true"><use id="fsIcon" href="#i-fullscreen"/></svg><span id="fsLabel">Full screen</span></button>
   <button id="dcBtn" type="button" title="Stop showing the Mac"><svg class="i" aria-hidden="true"><use href="#i-disconnect"/></svg><span>Disconnect</span></button>
 </div>
 
 <div class="status" id="status" role="status" aria-live="polite"><span class="dot" aria-hidden="true"></span><span class="text"></span></div>
 <div class="hud" id="hud" aria-hidden="true"></div>
+
+<!-- Layout map (layout.js): every screen of the host, host in the middle. -->
+<div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle" aria-hidden="true">
+  <div class="scrim" id="scrim"></div>
+  <div class="panel" id="panel" tabindex="-1">
+    <header>
+      <div>
+        <h2 id="sheetTitle"><svg class="i" aria-hidden="true"><use href="#i-screens"/></svg>Screens</h2>
+        <p id="sheetSub"></p>
+      </div>
+      <button class="pill" id="sheetDone" type="button">Done</button>
+    </header>
+    <div class="board-wrap" id="boardWrap"><div class="board" id="board"></div></div>
+    <div class="sheet-hint" id="sheetHint" role="status" aria-live="polite"></div>
+  </div>
+</div>

@@ -24,6 +24,8 @@ use str0m::{Candidate, Event, IceConnectionState, Input, Output, Rtc};
 use tracing::{debug, info, warn};
 
 use crate::platform::{EncodedFrame, Pipeline, PipelineConfig, Platform, Source, VirtualDisplay};
+use crate::screens::{self, CellAssign, ScreenOwner, ScreensView};
+use mullion_proto::layout::Cell;
 use crate::timing::{now_ms, Record, TimingLog};
 
 /// Who is connecting, from the offer.
@@ -61,7 +63,14 @@ pub struct OrphanedScreen {
 pub struct DevicesSnapshot {
     pub devices: Vec<DeviceStatus>,
     pub pending_removal: Vec<OrphanedScreen>,
+    /// Who owns each virtual display, for the layout map (`/screens`).
+    #[serde(skip)]
+    pub screens: Vec<ScreenOwner>,
 }
+
+/// Cells people chose on the layout map, per device key, so a device that
+/// comes back (after its screen was removed) lands where it was put.
+pub type RememberedCells = Arc<Mutex<HashMap<String, Cell>>>;
 
 pub enum Msg {
     NewRtc(Rtc, Mode, DeviceInfo),
@@ -76,6 +85,8 @@ pub struct SessionHandle {
     tx: Sender<Msg>,
     local_addrs: Vec<SocketAddr>,
     devices: Arc<Mutex<DevicesSnapshot>>,
+    platform: Arc<dyn Platform>,
+    remembered: RememberedCells,
 }
 
 impl SessionHandle {
@@ -102,6 +113,27 @@ impl SessionHandle {
         let answer = rtc.sdp_api().accept_offer(offer).map_err(|e| anyhow!("accept offer: {e}"))?;
         self.tx.send(Msg::NewRtc(rtc, mode, device)).map_err(|_| anyhow!("session thread gone"))?;
         Ok(answer.to_sdp_string())
+    }
+
+    /// The layout map: every display, its grid cell and its owner.
+    pub fn screens(&self) -> Result<ScreensView> {
+        let owners = self.devices.lock().unwrap().screens.clone();
+        screens::view(&*self.platform, &owners)
+    }
+
+    /// Move screens on the layout map and remember where devices were put.
+    pub fn set_layout(&self, cells: &[CellAssign]) -> Result<ScreensView> {
+        let owners = self.devices.lock().unwrap().screens.clone();
+        let placed = screens::apply(&*self.platform, &owners, cells)?;
+        {
+            let mut r = self.remembered.lock().unwrap();
+            for (key, cell) in placed {
+                r.insert(key, cell);
+            }
+        }
+        // Let the OS settle, then report what it actually did.
+        std::thread::sleep(Duration::from_millis(150));
+        screens::view(&*self.platform, &owners)
     }
 
     pub fn shutdown(&self) {
@@ -169,7 +201,8 @@ pub fn start(
 
     let frame_tx = tx.clone();
     let devices: Arc<Mutex<DevicesSnapshot>> = Arc::new(Mutex::new(DevicesSnapshot::default()));
-    let handle = SessionHandle { tx, local_addrs, devices: devices.clone() };
+    let remembered: RememberedCells = Arc::new(Mutex::new(HashMap::new()));
+    let handle = SessionHandle { tx, local_addrs, devices: devices.clone(), platform: platform.clone(), remembered: remembered.clone() };
     let join = std::thread::Builder::new().name("mullion-session".into()).spawn(move || {
         let mut loop_state = SessionLoop {
             sockets,
@@ -186,6 +219,7 @@ pub fn start(
             display_grace: cfg.display_grace,
             multi_session: cfg.multi_session,
             devices,
+            remembered,
             idr: IdrLimiter::default_policy(),
             next_id: 0,
         };
@@ -211,6 +245,7 @@ struct Active {
 struct OwnedDisplay {
     display: Box<dyn VirtualDisplay>,
     name: String,
+    device_name: String,
     /// Set when the owning device has no session; the display is removed once
     /// this is older than [`DISPLAY_GRACE`]. Cleared on reconnect.
     orphaned_at: Option<Instant>,
@@ -243,6 +278,7 @@ struct SessionLoop {
     display_grace: Duration,
     multi_session: bool,
     devices: Arc<Mutex<DevicesSnapshot>>,
+    remembered: RememberedCells,
     idr: IdrLimiter,
     next_id: u64,
 }
@@ -466,7 +502,18 @@ impl SessionLoop {
                     self.next_serial += 1;
                     match self.platform.create_virtual_display(c.width, c.height, c.fps, &name, serial)? {
                         Some(vd) => {
-                            self.displays.insert(key.clone(), OwnedDisplay { display: vd, name: name.clone(), orphaned_at: None });
+                            let source = vd.source();
+                            let device_name = self.sessions[i].device.name.clone();
+                            self.displays.insert(key.clone(), OwnedDisplay { display: vd, name: name.clone(), device_name, orphaned_at: None });
+                            // Back where it was put on the layout map, if that spot is free.
+                            let cell = self.remembered.lock().unwrap().get(&key).copied();
+                            if let (Some(cell), Source::Virtual(id)) = (cell, source) {
+                                match screens::place(&*self.platform, id, cell) {
+                                    Ok(true) => info!("{name} back in its layout cell {cell:?}"),
+                                    Ok(false) => info!("{name}: layout cell {cell:?} is taken, left where the OS put it"),
+                                    Err(e) => warn!("{name}: restore layout cell: {e:#}"),
+                                }
+                            }
                         }
                         None => anyhow::bail!("This OS cannot create a virtual display yet"),
                     }
@@ -536,7 +583,23 @@ impl SessionLoop {
                 Some(OrphanedScreen { screen_name: d.name.clone(), display_id: id, removes_in_secs: self.display_grace.saturating_sub(now.duration_since(t)).as_secs() })
             })
             .collect();
-        *self.devices.lock().unwrap() = DevicesSnapshot { devices: rows, pending_removal };
+        let owners: Vec<ScreenOwner> = self
+            .displays
+            .iter()
+            .filter_map(|(key, d)| {
+                let Source::Virtual(id) = d.display.source() else { return None };
+                let session = self.sessions.iter().find(|a| a.source == Some(Source::Virtual(id)) && a.connected);
+                Some(ScreenOwner {
+                    display_id: id,
+                    key: key.clone(),
+                    device_id: if key.starts_with("session-") { None } else { Some(key.clone()) },
+                    device_name: session.map(|a| a.device.name.clone()).unwrap_or_else(|| d.device_name.clone()),
+                    connected: session.is_some(),
+                    removes_in_secs: d.orphaned_at.map(|t| self.display_grace.saturating_sub(now.duration_since(t)).as_secs()),
+                })
+            })
+            .collect();
+        *self.devices.lock().unwrap() = DevicesSnapshot { devices: rows, pending_removal, screens: owners };
     }
 
     fn on_probe(&mut self, i: usize, data: &[u8]) {
@@ -671,5 +734,13 @@ impl crate::signaling::OfferHandler for SharedHandle {
 
     fn devices(&self) -> DevicesSnapshot {
         self.0.lock().unwrap().devices()
+    }
+
+    fn screens(&self) -> Result<ScreensView> {
+        self.0.lock().unwrap().screens()
+    }
+
+    fn set_layout(&self, cells: &[CellAssign]) -> Result<ScreensView> {
+        self.0.lock().unwrap().set_layout(cells)
     }
 }

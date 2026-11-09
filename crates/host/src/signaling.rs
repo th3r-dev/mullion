@@ -4,6 +4,11 @@
 //! serves the latency probe page. Anything else is 404; wrong methods are 405;
 //! bodies over the limit are 413 (T-10). Startup on a busy port is a named
 //! error pointing at the flag (T-11).
+//!
+//! Layout map: `GET /screens` lists every display with its grid cell;
+//! `POST /screens/layout` with `{"cells":[{"display_id":7,"col":-1,"row":0}]}`
+//! moves screens and answers with the new `/screens`. A layout that cannot be
+//! placed is 409 with the reason.
 
 use std::io::Read;
 use std::net::SocketAddr;
@@ -11,6 +16,7 @@ use std::sync::Arc;
 
 use anyhow::{anyhow, Context, Result};
 use mullion_proto::signal::{clean_device_name, parse_offer, valid_device_id, Mode, MAX_BODY_BYTES};
+use crate::screens::{CellAssign, LayoutRequest, Rejected, ScreenKind, ScreensView};
 use crate::session::{DeviceInfo, DevicesSnapshot};
 use serde::Serialize;
 use tiny_http::{Header, Method, Request, Response, Server, StatusCode};
@@ -24,7 +30,16 @@ pub trait OfferHandler: Send + Sync + 'static {
     fn devices(&self) -> DevicesSnapshot {
         DevicesSnapshot::default()
     }
+    fn screens(&self) -> Result<ScreensView> {
+        Ok(ScreensView::default())
+    }
+    fn set_layout(&self, _cells: &[CellAssign]) -> Result<ScreensView> {
+        Err(Rejected("arranging screens is not available on this host".into()).into())
+    }
 }
+
+/// Largest `POST /screens/layout` body: a few dozen cells.
+const MAX_LAYOUT_BYTES: usize = 16 * 1024;
 
 impl<F> OfferHandler for F
 where
@@ -169,6 +184,25 @@ impl Signaling {
                 let resp = Response::from_data(body).with_header(Header::from_bytes("Content-Type", "application/json").unwrap());
                 req.respond(with_cors(resp)).context("respond")
             }
+            ("/screens", Method::Get) => {
+                let view = self.handler.screens();
+                self.respond_screens(req, view)
+            }
+            ("/screens", _) => respond_status(req, 405, "Use GET"),
+            ("/screens/layout", Method::Post) => {
+                let mut body = Vec::new();
+                let n = req.as_reader().take(MAX_LAYOUT_BYTES as u64 + 1).read_to_end(&mut body).unwrap_or(0);
+                if n > MAX_LAYOUT_BYTES {
+                    return respond_status(req, 413, "Layout too large");
+                }
+                let Ok(layout) = serde_json::from_slice::<LayoutRequest>(&body) else {
+                    return respond_status(req, 400, "Body must be JSON {\"cells\":[{\"display_id\":7,\"col\":1,\"row\":0}]}");
+                };
+                info!("layout from {peer}: {:?}", layout.cells);
+                let view = self.handler.set_layout(&layout.cells);
+                self.respond_screens(req, view)
+            }
+            ("/screens/layout", _) => respond_status(req, 405, "Use POST"),
             (p, Method::Get | Method::Head) if icon_file(p).is_some() => {
                 let (bytes, mime) = icon_file(p).unwrap();
                 let resp = Response::from_data(bytes.to_vec())
@@ -181,6 +215,29 @@ impl Signaling {
                 req.respond(with_cors(resp)).context("respond")
             }
             _ => respond_status(req, 404, "Not found"),
+        }
+    }
+}
+
+impl Signaling {
+    fn respond_screens(&self, req: Request, view: Result<ScreensView>) -> Result<()> {
+        match view {
+            Ok(mut v) => {
+                v.host_name = self.host_name.clone();
+                for s in v.screens.iter_mut().filter(|s| s.kind == ScreenKind::Host) {
+                    s.name = self.host_name.clone();
+                }
+                let body = serde_json::to_vec(&v)?;
+                let resp = Response::from_data(body)
+                    .with_header(Header::from_bytes("Content-Type", "application/json").unwrap())
+                    .with_header(Header::from_bytes("Cache-Control", "no-store").unwrap());
+                req.respond(with_cors(resp)).context("respond")
+            }
+            Err(e) if e.is::<Rejected>() => respond_status(req, 409, &e.to_string()),
+            Err(e) => {
+                warn!("screens: {e:#}");
+                respond_status(req, 500, &format!("Can't read the displays: {e}"))
+            }
         }
     }
 }
@@ -281,6 +338,81 @@ mod tests {
         let r = a.get(&format!("http://{addr}/receiver")).call().unwrap();
         let html = r.into_string().unwrap();
         assert!(html.contains(r#"rel="manifest""#) && html.contains("apple-touch-icon"));
+    }
+
+    /// A desk of host + one tablet right of it; layout requests go through the real planner.
+    struct FakeDesk(std::sync::Mutex<Vec<crate::platform::DisplayInfo>>);
+
+    impl FakeDesk {
+        fn new() -> Self {
+            use crate::platform::DisplayInfo;
+            Self(std::sync::Mutex::new(vec![
+                DisplayInfo { id: 1, x: 0, y: 0, width: 1512, height: 982, main: true, builtin: true },
+                DisplayInfo { id: 7, x: 1512, y: 0, width: 1920, height: 1080, main: false, builtin: false },
+            ]))
+        }
+        fn view(&self) -> ScreensView {
+            let (_, cells) = crate::screens::current_cells(&self.0.lock().unwrap()).unwrap();
+            ScreensView {
+                can_arrange: true,
+                screens: std::iter::once((1, ScreenKind::Host, (0, 0)))
+                    .chain(cells.iter().map(|(d, c)| (d.id, ScreenKind::Device, *c)))
+                    .map(|(id, kind, (col, row))| crate::screens::ScreenView {
+                        display_id: id, kind, name: String::new(), builtin: id == 1, x: 0, y: 0, width: 1, height: 1, col, row,
+                        device_id: None, connected: None, removes_in_secs: None,
+                    })
+                    .collect(),
+                ..Default::default()
+            }
+        }
+    }
+
+    impl OfferHandler for FakeDesk {
+        fn answer(&self, _: &str, _: Mode, _: DeviceInfo, _: SocketAddr) -> Result<String> {
+            Err(anyhow!("no offers here"))
+        }
+        fn screens(&self) -> Result<ScreensView> {
+            Ok(self.view())
+        }
+        fn set_layout(&self, cells: &[CellAssign]) -> Result<ScreensView> {
+            let mut desk = self.0.lock().unwrap();
+            let (moves, _) = crate::screens::plan(&desk, cells)?;
+            for (id, x, y) in moves {
+                let d = desk.iter_mut().find(|d| d.id == id).unwrap();
+                d.x = x;
+                d.y = y;
+            }
+            drop(desk);
+            Ok(self.view())
+        }
+    }
+
+    #[test]
+    fn layout_map_lists_and_moves_screens() {
+        let addr = start(FakeDesk::new());
+        let a = agent();
+        let v: serde_json::Value = a.get(&format!("http://{addr}/screens")).call().unwrap().into_json().unwrap();
+        assert_eq!(v["host_name"], "TEST-MAC");
+        assert_eq!(v["screens"][0]["kind"], "host");
+        assert_eq!(v["screens"][0]["name"], "TEST-MAC", "host tile carries the host name");
+        assert_eq!((v["screens"][1]["col"].as_i64(), v["screens"][1]["row"].as_i64()), (Some(1), Some(0)));
+
+        let url = format!("http://{addr}/screens/layout");
+        let r = a.post(&url).send_string(r#"{"cells":[{"display_id":7,"col":0,"row":-1}]}"#).unwrap();
+        let v: serde_json::Value = r.into_json().unwrap();
+        assert_eq!((v["screens"][1]["col"].as_i64(), v["screens"][1]["row"].as_i64()), (Some(0), Some(-1)), "now above the host");
+
+        let r = a.post(&url).send_string(r#"{"cells":[{"display_id":7,"col":0,"row":0}]}"#).unwrap_err();
+        match r {
+            ureq::Error::Status(409, resp) => assert!(resp.into_string().unwrap().contains("host")),
+            other => panic!("expected 409, got {other:?}"),
+        }
+        let r = a.post(&url).send_string("[]").unwrap_err();
+        assert!(matches!(r, ureq::Error::Status(400, _)), "{r:?}");
+        let r = a.get(&url).call().unwrap_err();
+        assert!(matches!(r, ureq::Error::Status(405, _)), "{r:?}");
+        let r = a.post(&url).send_bytes(&vec![b' '; 64 * 1024]).unwrap_err();
+        assert!(matches!(r, ureq::Error::Status(413, _)), "{r:?}");
     }
 
     #[test]

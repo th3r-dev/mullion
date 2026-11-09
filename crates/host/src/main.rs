@@ -4,6 +4,7 @@
 mod config;
 mod platform;
 mod probe_page;
+mod screens;
 mod session;
 mod signaling;
 mod timing;
@@ -116,7 +117,10 @@ fn main() -> Result<()> {
     let platform: Arc<dyn platform::Platform> = Arc::from(platform::current()?);
     info!("platform: {}", platform.name());
 
-    let host_name = hostname::get().map(|h| h.to_string_lossy().into_owned()).unwrap_or_else(|_| "mullion-host".into());
+    // macOS reports "Name.local"; people know the machine as "Name".
+    let host_name = hostname::get()
+        .map(|h| h.to_string_lossy().trim_end_matches(".local").to_string())
+        .unwrap_or_else(|_| "mullion-host".into());
     let log_path = args.log.clone().unwrap_or_else(|| {
         PathBuf::from("logs").join(format!("host-{}.jsonl", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()))
     });

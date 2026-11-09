@@ -80,6 +80,28 @@ pub trait Platform: Send + Sync {
     /// Called after a virtual display object is dropped, so the platform can
     /// re-arrange what is left.
     fn virtual_display_removed(&self, _source: Source) {}
+    /// Every display the OS shows the desktop on, where it sits (OS display
+    /// space, main display at the origin). Mirrors of another display are left out.
+    fn displays(&self) -> Result<Vec<DisplayInfo>> {
+        Ok(vec![])
+    }
+    /// Move displays to these origins in one OS transaction. The main display
+    /// is not in the list; it stays at the origin.
+    fn set_origins(&self, _origins: &[(u32, i32, i32)]) -> Result<()> {
+        anyhow::bail!("arranging screens is not supported on this OS yet")
+    }
+}
+
+/// One display as the OS has it arranged.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DisplayInfo {
+    pub id: u32,
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+    pub main: bool,
+    pub builtin: bool,
 }
 
 /// A virtual monitor; dropping it removes the display.

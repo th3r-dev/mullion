@@ -4,5 +4,6 @@
 pub mod clock;
 pub mod h264;
 pub mod keyframe;
+pub mod layout;
 pub mod probe;
 pub mod signal;
