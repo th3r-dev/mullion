@@ -6,3 +6,11 @@ license.workspace = true
 
 [dependencies]
 mullion-proto = { workspace = true }
+dioxus = { version = "0.7.10", features = [] }
+serde_json = { workspace = true }
+serde = { workspace = true }
+
+[features]
+default = ["desktop"]
+desktop = ["dioxus/desktop"]
+mobile = ["dioxus/mobile"]

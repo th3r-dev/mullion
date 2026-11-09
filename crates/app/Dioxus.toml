@@ -1,0 +1,6 @@
+[application]
+name = "mullion"
+
+[bundle]
+identifier = "app.mullion.tablet"
+publisher = "Mullion"

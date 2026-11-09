@@ -32,11 +32,13 @@ pub struct PipelineConfig {
     pub require_hardware: bool,
     /// T-5: re-encode the last frame when the screen is static, at this rate.
     pub idle_fps: u32,
+    /// Burn the latency probe strip into the top of every frame (A-13).
+    pub probe_overlay: bool,
 }
 
 impl Default for PipelineConfig {
     fn default() -> Self {
-        Self { width: 1920, height: 1080, fps: 60, bitrate_kbps: 10_000, require_hardware: true, idle_fps: 2 }
+        Self { width: 1920, height: 1080, fps: 60, bitrate_kbps: 10_000, require_hardware: true, idle_fps: 2, probe_overlay: true }
     }
 }
 

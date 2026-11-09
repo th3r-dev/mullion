@@ -42,6 +42,9 @@ struct Args {
     /// Timing log path (JSON lines). Default: logs/host-<unix>.jsonl
     #[arg(long)]
     log: Option<PathBuf>,
+    /// Do not burn the latency probe strip into the frames.
+    #[arg(long, default_value_t = false)]
+    no_probe: bool,
     /// Only check that a hardware encoder can be opened, then exit (T-22).
     #[arg(long, default_value_t = false)]
     check_encoder: bool,
@@ -94,6 +97,7 @@ fn main() -> Result<()> {
         fps: args.fps,
         bitrate_kbps: args.bitrate_kbps,
         require_hardware: !args.allow_software_encoder,
+        probe_overlay: !args.no_probe,
         ..Default::default()
     };
     let (handle, session_thread) =

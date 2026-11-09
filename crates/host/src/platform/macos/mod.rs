@@ -2,6 +2,7 @@
 
 mod capture;
 mod encode;
+mod overlay;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
@@ -33,6 +34,7 @@ impl Platform for MacOs {
 
     fn start_pipeline(&self, cfg: &PipelineConfig, tx: Sender<EncodedFrame>) -> Result<Box<dyn Pipeline>> {
         let encoder = Arc::new(encode::VtEncoder::new(cfg, tx)?);
+        let probe_on = cfg.probe_overlay;
         let last_frame: Arc<Mutex<Option<Arc<SendImage>>>> = Arc::new(Mutex::new(None));
 
         let enc = encoder.clone();
@@ -41,6 +43,9 @@ impl Platform for MacOs {
             cfg,
             Box::new(move |image: &CVImageBuffer| {
                 let t = now_ms();
+                if probe_on {
+                    overlay::burn_strip(image, t as u64);
+                }
                 *lf.lock().unwrap() = Some(Arc::new(SendImage(image.retain())));
                 enc.encode(image, t);
             }),
@@ -61,7 +66,11 @@ impl Platform for MacOs {
                     if since >= idle_period {
                         let img = last_frame.lock().unwrap().clone();
                         if let Some(img) = img {
-                            idle_enc.encode(&img.0, now_ms());
+                            let t = now_ms();
+                            if probe_on {
+                                overlay::burn_strip(&img.0, t as u64);
+                            }
+                            idle_enc.encode(&img.0, t);
                         }
                     }
                 }
