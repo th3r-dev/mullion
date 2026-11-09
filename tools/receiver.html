@@ -1,35 +1,13 @@
 <!doctype html>
-<meta charset="utf-8">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light dark">
 <title>Mullion receiver (browser smoke test)</title>
-<style>
-  html,body{margin:0;background:#0F1113;color:#ECEDEE;font:15px system-ui;height:100%}
-  #bar{display:flex;gap:8px;align-items:center;padding:8px 12px;background:#111418}
-  input{font:inherit;padding:6px 8px;border-radius:6px;border:1px solid #2A2E33;background:#0F1113;color:#ECEDEE;width:160px}
-  button{font:inherit;padding:6px 12px;border-radius:6px;border:0;background:#5B93FF;color:#0F1113;font-weight:600}
-  video{display:block;width:100vw;height:calc(100vh - 44px);background:#000;object-fit:contain}
-  #hud{position:fixed;right:12px;bottom:12px;background:rgba(17,20,24,.86);padding:6px 10px;border-radius:6px;font-size:12px;font-variant-numeric:tabular-nums;white-space:pre}
-</style>
-<div id="bar">
-  <input id="ip" placeholder="Host IP" value="">
-  <input id="name" placeholder="Device name" style="width:120px">
-  <select id="mode"><option value="mirror">Mirror</option><option value="extend">Extend</option></select>
-  <button id="go">Connect</button>
-  <span id="st">idle</span>
-</div>
-<video id="v" muted autoplay playsinline></video>
-<div id="hud"></div>
-<script src="../crates/app/assets/receiver.js"></script>
+<link rel="stylesheet" href="../crates/app/assets/ui.css">
+<body></body>
 <script>
-  const ip=document.getElementById('ip'), st=document.getElementById('st'), hud=document.getElementById('hud');
-  ip.value=new URLSearchParams(location.search).get('host')||localStorage.getItem('mullion.host')||'';
-  document.getElementById('go').onclick=()=>{localStorage.setItem('mullion.host',ip.value);const n=document.getElementById('name').value; mullion.setDeviceName(n); mullion.connect(ip.value,document.getElementById('v'),{mode:document.getElementById('mode').value,name:n});};
-  document.getElementById('name').value=mullion.deviceName();
-  mullion.onStatus(s=>{st.textContent=s.status+(s.error?' — '+s.error:'')+(s.hostName?' · '+s.hostName:'');});
-  setInterval(()=>{const s=mullion.stats();hud.textContent=
-`status ${s.status}  ${s.videoWidth}x${s.videoHeight}
-offset ${s.offsetMs==null?'–':s.offsetMs.toFixed(1)} ms  rtt ${s.rttMs==null?'–':s.rttMs.toFixed(1)} ms
-presented ${s.presented}  decoded ${s.decoded}  fail ${s.decodeFail}  dropped ${s.dropped}
-g2g last ${s.g2gLast==null?'–':s.g2gLast.toFixed(1)}  p50 ${s.g2gP50==null?'–':s.g2gP50.toFixed(1)}  p95 ${s.g2gP95==null?'–':s.g2gP95.toFixed(1)} ms
-jbt ${s.caps?(s.caps.jitter_buffer_target_supported?('yes '+s.caps.jitter_buffer_target_ms+(s.caps.via?' via '+s.caps.via:'')):'no'):'–'}`;},250);
-  if(new URLSearchParams(location.search).get('auto')==='1'&&ip.value) document.getElementById('go').click();
+  fetch('../crates/app/assets/ui.html').then(r => r.text()).then(html => {
+    document.body.innerHTML = html;
+    const s1 = document.createElement('script'); s1.src = '../crates/app/assets/receiver.js';
+    s1.onload = () => { const s2 = document.createElement('script'); s2.src = '../crates/app/assets/ui.js'; document.body.appendChild(s2); };
+    document.body.appendChild(s1);
+  });
 </script>

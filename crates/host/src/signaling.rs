@@ -140,7 +140,8 @@ impl Signaling {
                     .map(|h| h.value.as_str().split(':').next().unwrap_or("").to_string())
                     .unwrap_or_default();
                 let resp = Response::from_string(receiver_html(&host_ip))
-                    .with_header(Header::from_bytes("Content-Type", "text/html; charset=utf-8").unwrap());
+                    .with_header(Header::from_bytes("Content-Type", "text/html; charset=utf-8").unwrap())
+                    .with_header(Header::from_bytes("Cache-Control", "no-store").unwrap());
                 req.respond(with_cors(resp)).context("respond")
             }
             ("/devices", Method::Get) => {
