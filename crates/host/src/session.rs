@@ -11,7 +11,7 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
 use mullion_proto::keyframe::IdrLimiter;
 use mullion_proto::signal::ProbeMessage;
 use str0m::change::SdpOffer;
@@ -127,7 +127,10 @@ pub fn start(
             platform,
             pipeline_cfg: cfg.pipeline,
             log,
-            current: None,
+            sessions: Vec::new(),
+            pipeline: None,
+            idr: IdrLimiter::default_policy(),
+            next_id: 0,
         };
         loop_state.run();
     })?;
@@ -135,12 +138,13 @@ pub fn start(
 }
 
 struct Active {
+    id: u64,
     rtc: Rtc,
+    /// Remote address once ICE picks a pair; used to route incoming packets.
+    peer: Option<SocketAddr>,
     video_mid: Option<Mid>,
     probe_channel: Option<ChannelId>,
-    pipeline: Option<Box<dyn Pipeline>>,
-    idr: IdrLimiter,
-    connected_at: Option<Instant>,
+    connected: bool,
     frames_sent: u64,
 }
 
@@ -151,7 +155,12 @@ struct SessionLoop {
     platform: Arc<dyn Platform>,
     pipeline_cfg: PipelineConfig,
     log: Arc<TimingLog>,
-    current: Option<Active>,
+    /// All receivers. PoC 1 is specified for one, but several make testing
+    /// (tablet + loopback) possible; they share one pipeline (PLAN step 8, Mirror).
+    sessions: Vec<Active>,
+    pipeline: Option<Box<dyn Pipeline>>,
+    idr: IdrLimiter,
+    next_id: u64,
 }
 
 impl SessionLoop {
@@ -164,121 +173,146 @@ impl SessionLoop {
                 Err(RecvTimeoutError::Timeout) => None,
                 Err(RecvTimeoutError::Disconnected) => break,
             };
+            let mut touched: Vec<usize> = Vec::new();
             match msg {
                 Some(Msg::Shutdown) => break,
                 Some(Msg::NewRtc(rtc)) => {
-                    self.end_current("replaced by a new offer");
-                    self.log.record(Record::Event { at_ms: now_ms(), what: "offer accepted".into() });
-                    self.current = Some(Active {
+                    self.next_id += 1;
+                    self.log.record(Record::Event { at_ms: now_ms(), what: format!("offer accepted #{}", self.next_id) });
+                    self.sessions.push(Active {
+                        id: self.next_id,
                         rtc,
+                        peer: None,
                         video_mid: None,
                         probe_channel: None,
-                        pipeline: None,
-                        idr: IdrLimiter::default_policy(),
-                        connected_at: None,
+                        connected: false,
                         frames_sent: 0,
                     });
+                    touched.push(self.sessions.len() - 1);
                 }
                 Some(Msg::Packet { at, source, destination, data }) => {
-                    if let Some(a) = self.current.as_mut() {
+                    // Route by known peer; unknown sources (ICE checks) go to every
+                    // session without a peer yet. str0m ignores packets not for it.
+                    let targets: Vec<usize> = {
+                        let known: Vec<usize> = self.sessions.iter().enumerate().filter(|(_, a)| a.peer == Some(source)).map(|(i, _)| i).collect();
+                        if known.is_empty() {
+                            self.sessions.iter().enumerate().filter(|(_, a)| a.peer.is_none()).map(|(i, _)| i).collect()
+                        } else {
+                            known
+                        }
+                    };
+                    for i in targets {
                         if let Ok(contents) = data.as_slice().try_into() {
                             let input = Input::Receive(at, Receive { proto: Protocol::Udp, source, destination, contents });
-                            if let Err(e) = a.rtc.handle_input(input) {
-                                warn!("handle_input: {e}");
+                            if let Err(e) = self.sessions[i].rtc.handle_input(input) {
+                                debug!("handle_input: {e}");
                             }
+                            touched.push(i);
                         }
                     }
                 }
                 Some(Msg::Frame(frame)) => {
-                    if let Some(a) = self.current.as_mut() {
-                        write_frame(a, &frame, &self.log);
+                    for (i, a) in self.sessions.iter_mut().enumerate() {
+                        if a.connected {
+                            write_frame(a, &frame, &self.log, i == 0);
+                            touched.push(i);
+                        }
                     }
                 }
                 None => {
-                    if let Some(a) = self.current.as_mut() {
-                        if let Err(e) = a.rtc.handle_input(Input::Timeout(Instant::now())) {
-                            warn!("timeout input: {e}");
+                    let now = Instant::now();
+                    for (i, a) in self.sessions.iter_mut().enumerate() {
+                        if let Err(e) = a.rtc.handle_input(Input::Timeout(now)) {
+                            debug!("timeout input: {e}");
                         }
+                        touched.push(i);
                     }
                 }
             }
             // Drain after every mutation (str0m's single-mutation invariant).
-            next_timeout = self.drain();
+            // Draining every session is cheap and keeps the invariant simple.
+            next_timeout = self.drain_all();
         }
-        self.end_current("shutdown");
+        self.end_all("shutdown");
     }
 
-    /// Drain `poll_output` to `Timeout`; returns the next deadline.
-    fn drain(&mut self) -> Instant {
-        loop {
-            let Some(a) = self.current.as_mut() else { return Instant::now() + Duration::from_secs(1) };
-            match a.rtc.poll_output() {
-                Ok(Output::Timeout(t)) => return t,
-                Ok(Output::Transmit(t)) => {
-                    let sock = self.sockets.get(&t.source).or_else(|| self.sockets.values().next());
-                    if let Some(sock) = sock {
-                        if let Err(e) = sock.send_to(&t.contents, t.destination) {
-                            debug!("send_to {}: {e}", t.destination);
+    /// Drain every session's `poll_output` to `Timeout`; return the earliest deadline.
+    fn drain_all(&mut self) -> Instant {
+        let mut earliest = Instant::now() + Duration::from_secs(1);
+        let mut ended: Vec<(usize, &'static str)> = Vec::new();
+        for i in 0..self.sessions.len() {
+            loop {
+                let out = self.sessions[i].rtc.poll_output();
+                match out {
+                    Ok(Output::Timeout(t)) => {
+                        if t < earliest {
+                            earliest = t;
+                        }
+                        break;
+                    }
+                    Ok(Output::Transmit(t)) => {
+                        if self.sessions[i].peer.is_none() && self.sessions[i].connected {
+                            self.sessions[i].peer = Some(t.destination);
+                        }
+                        let sock = self.sockets.get(&t.source).or_else(|| self.sockets.values().next());
+                        if let Some(sock) = sock {
+                            if let Err(e) = sock.send_to(&t.contents, t.destination) {
+                                debug!("send_to {}: {e}", t.destination);
+                            }
                         }
                     }
-                }
-                Ok(Output::Event(ev)) => {
-                    if let Some(reason) = self.on_event(ev) {
-                        self.end_current(reason);
-                        return Instant::now() + Duration::from_secs(1);
+                    Ok(Output::Event(ev)) => {
+                        if let Some(reason) = self.on_event(i, ev) {
+                            ended.push((i, reason));
+                            break;
+                        }
                     }
-                }
-                Err(e) => {
-                    warn!("poll_output: {e}");
-                    self.end_current("rtc error");
-                    return Instant::now() + Duration::from_secs(1);
+                    Err(e) => {
+                        warn!("poll_output: {e}");
+                        ended.push((i, "rtc error"));
+                        break;
+                    }
                 }
             }
         }
+        for (i, reason) in ended.into_iter().rev() {
+            self.end_session(i, reason);
+        }
+        earliest
     }
 
-    /// Returns `Some(reason)` when the session should end.
-    fn on_event(&mut self, ev: Event) -> Option<&'static str> {
-        let a = self.current.as_mut()?;
+    /// Returns `Some(reason)` when session `i` should end.
+    fn on_event(&mut self, i: usize, ev: Event) -> Option<&'static str> {
         match ev {
             Event::MediaAdded(m) => {
-                info!("media added: mid={} kind={:?} dir={:?}", m.mid, m.kind, m.direction);
-                a.video_mid = Some(m.mid);
+                info!("#{} media added: mid={} kind={:?} dir={:?}", self.sessions[i].id, m.mid, m.kind, m.direction);
+                self.sessions[i].video_mid = Some(m.mid);
             }
             Event::ChannelOpen(id, label) => {
-                info!("data channel open: {label}");
+                info!("#{} data channel open: {label}", self.sessions[i].id);
                 if label == "probe" {
-                    a.probe_channel = Some(id);
+                    self.sessions[i].probe_channel = Some(id);
                 }
             }
             Event::ChannelData(d) => {
-                if Some(d.id) == a.probe_channel {
-                    self.on_probe(&d.data);
+                if Some(d.id) == self.sessions[i].probe_channel {
+                    self.on_probe(i, &d.data);
                 }
             }
             Event::IceConnectionStateChange(s) => {
-                info!("ice: {s:?}");
+                info!("#{} ice: {s:?}", self.sessions[i].id);
                 match s {
                     IceConnectionState::Connected | IceConnectionState::Completed => {
-                        if a.pipeline.is_none() {
-                            a.connected_at = Some(Instant::now());
-                            self.log.record(Record::Event { at_ms: now_ms(), what: "connected".into() });
-                            let (ptx, prx) = mpsc::channel::<EncodedFrame>();
-                            // Forward encoder output into the session channel.
-                            let ftx = self.frame_tx.clone();
-                            std::thread::spawn(move || {
-                                for f in prx {
-                                    if ftx.send(Msg::Frame(f)).is_err() {
-                                        break;
-                                    }
-                                }
-                            });
-                            match self.platform.start_pipeline(&self.pipeline_cfg, ptx) {
-                                Ok(p) => a.pipeline = Some(p),
-                                Err(e) => {
-                                    warn!("pipeline: {e:#}");
-                                    return Some("pipeline failed");
-                                }
+                        if !self.sessions[i].connected {
+                            self.sessions[i].connected = true;
+                            self.log.record(Record::Event { at_ms: now_ms(), what: format!("connected #{}", self.sessions[i].id) });
+                            if let Err(e) = self.ensure_pipeline() {
+                                warn!("pipeline: {e:#}");
+                                return Some("pipeline failed");
+                            }
+                            // A joining receiver needs an IDR to start decoding.
+                            if let Some(p) = self.pipeline.as_ref() {
+                                p.request_idr();
                             }
                         }
                     }
@@ -286,13 +320,13 @@ impl SessionLoop {
                     _ => {}
                 }
             }
-            Event::Connected => info!("dtls connected"),
+            Event::Connected => info!("#{} dtls connected", self.sessions[i].id),
             Event::KeyframeRequest(k) => {
-                let granted = a.idr.request(Instant::now());
+                let granted = self.idr.request(Instant::now());
                 self.log.record(Record::Pli { at_ms: now_ms(), granted });
-                debug!("keyframe request {:?} granted={granted}", k.kind);
+                debug!("#{} keyframe request {:?} granted={granted}", self.sessions[i].id, k.kind);
                 if granted {
-                    if let Some(p) = a.pipeline.as_ref() {
+                    if let Some(p) = self.pipeline.as_ref() {
                         p.request_idr();
                     }
                 }
@@ -303,12 +337,29 @@ impl SessionLoop {
         None
     }
 
-    fn on_probe(&mut self, data: &[u8]) {
-        let Some(a) = self.current.as_mut() else { return };
+    fn ensure_pipeline(&mut self) -> Result<()> {
+        if self.pipeline.is_some() {
+            return Ok(());
+        }
+        let (ptx, prx) = mpsc::channel::<EncodedFrame>();
+        let ftx = self.frame_tx.clone();
+        std::thread::spawn(move || {
+            for f in prx {
+                if ftx.send(Msg::Frame(f)).is_err() {
+                    break;
+                }
+            }
+        });
+        self.pipeline = Some(self.platform.start_pipeline(&self.pipeline_cfg, ptx)?);
+        Ok(())
+    }
+
+    fn on_probe(&mut self, i: usize, data: &[u8]) {
         let Ok(msg) = serde_json::from_slice::<ProbeMessage>(data) else {
             debug!("probe: unparseable {} bytes", data.len());
             return;
         };
+        let a = &mut self.sessions[i];
         match msg {
             ProbeMessage::Ping { t0 } => {
                 let reply = ProbeMessage::Pong { t0, t1: now_ms() };
@@ -327,27 +378,39 @@ impl SessionLoop {
                 });
             }
             ProbeMessage::Capabilities { jitter_buffer_target_supported, jitter_buffer_target_ms, user_agent } => {
-                info!("receiver: jitterBufferTarget supported={jitter_buffer_target_supported} value={jitter_buffer_target_ms:?} ua={user_agent}");
+                info!("#{} receiver: jitterBufferTarget supported={jitter_buffer_target_supported} value={jitter_buffer_target_ms:?} ua={user_agent}", a.id);
                 self.log.record(Record::Capabilities { jitter_buffer_target_supported, jitter_buffer_target_ms, user_agent });
             }
             ProbeMessage::Pong { .. } => {}
         }
     }
 
-    fn end_current(&mut self, reason: &str) {
-        if let Some(mut a) = self.current.take() {
-            if let Some(mut p) = a.pipeline.take() {
+    fn end_session(&mut self, i: usize, reason: &str) {
+        if i >= self.sessions.len() {
+            return;
+        }
+        let mut a = self.sessions.remove(i);
+        a.rtc.disconnect();
+        info!("#{} session ended: {reason} ({} frames sent)", a.id, a.frames_sent);
+        self.log.record(Record::Event { at_ms: now_ms(), what: format!("session #{} ended: {reason}", a.id) });
+        self.log.flush();
+        // FR-7: last receiver gone -> stop capture, free the encoder.
+        if self.sessions.iter().all(|s| !s.connected) {
+            if let Some(mut p) = self.pipeline.take() {
                 p.stop();
             }
-            a.rtc.disconnect();
-            info!("session ended: {reason} ({} frames sent)", a.frames_sent);
-            self.log.record(Record::Event { at_ms: now_ms(), what: format!("session ended: {reason}") });
-            self.log.flush();
+        }
+    }
+
+    fn end_all(&mut self, reason: &str) {
+        while !self.sessions.is_empty() {
+            let last = self.sessions.len() - 1;
+            self.end_session(last, reason);
         }
     }
 }
 
-fn write_frame(a: &mut Active, frame: &EncodedFrame, log: &TimingLog) {
+fn write_frame(a: &mut Active, frame: &EncodedFrame, log: &TimingLog, log_it: bool) {
     let Some(mid) = a.video_mid else { return };
     let Some(writer) = a.rtc.writer(mid) else { return };
     let Some(pt) = writer.payload_params().find(|p| p.spec().codec == Codec::H264).map(|p| p.pt()) else {
@@ -359,6 +422,9 @@ fn write_frame(a: &mut Active, frame: &EncodedFrame, log: &TimingLog) {
     match writer.write(pt, Instant::now(), rtp_time, frame.data.clone()) {
         Ok(()) => {
             a.frames_sent += 1;
+            if !log_it {
+                return;
+            }
             log.record(Record::Frame {
                 seq: frame.seq,
                 capture_ms: frame.capture_ms,
