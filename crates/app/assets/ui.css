@@ -25,6 +25,13 @@ html, body { margin: 0; height: 100%; background: var(--paper); color: var(--ink
 * { box-sizing: border-box; }
 button, input, select { font: inherit; color: inherit; }
 
+/* Icons: 24-unit line icons from the sprite in ui.html, drawn in the text colour.
+   Every action pairs an icon with its word; the icon never replaces the label. */
+.sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+.i { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 2;
+  stroke-linecap: round; stroke-linejoin: round; }
+button:has(> .i), .links a { display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
+
 /* Stage: video full-bleed underneath; chrome floats above. */
 .stage { position: fixed; inset: 0; background: #000; }
 .stage video { width: 100%; height: 100%; object-fit: contain; display: block;
@@ -51,6 +58,7 @@ button, input, select { font: inherit; color: inherit; }
 .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .seg { display: grid; grid-template-columns: 1fr 1fr; padding: 3px; border-radius: 10px; border: 1px solid var(--line); position: relative; }
 .seg button { position: relative; z-index: 1; background: none; border: 0; padding: 8px 0; border-radius: 8px; font-weight: 600; opacity: .7; }
+.seg .i { width: 16px; height: 16px; }
 .seg button[aria-pressed="true"] { opacity: 1; color: var(--on-accent); }
 .seg .thumb { position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc(50% - 3px); border-radius: 8px;
   background: var(--accent); will-change: transform; }
@@ -61,6 +69,21 @@ button, input, select { font: inherit; color: inherit; }
 .primary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .hint { font-size: 13px; opacity: .7; min-height: 1.5em; }
 .hint.err { opacity: 1; }
+
+/* Project links: bottom-right of the setup screen, quiet until touched.
+   They live inside .setup, so they leave with the card and never sit on the video. */
+.links { position: fixed; right: max(16px, env(safe-area-inset-right)); bottom: max(14px, env(safe-area-inset-bottom));
+  display: flex; gap: 4px; }
+.links a { padding: 6px 10px; border-radius: 9px; color: var(--ink); text-decoration: none;
+  font-size: 13px; font-weight: 600; letter-spacing: .01em; opacity: .7;
+  transition: opacity 120ms ease-out, background 120ms ease-out, transform 100ms ease-out; }
+.links a:hover, .links a:focus-visible { opacity: 1; background: color-mix(in srgb, var(--ink) 7%, transparent); }
+.links a:active { transform: scale(0.97); }
+.links a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.links .i { width: 16px; height: 16px; }
+/* GitHub's sponsor heart colour; a non-text mark (4.7:1 light, 5.9:1 dark on --paper). */
+.links .heart { color: #BF3989; }
+@media (prefers-color-scheme: dark) { .links .heart { color: #E85AAD; } }
 
 /* Floating toolbar: translucent, hides over the video after a pause. */
 .toolbar { position: fixed; left: 50%; top: max(12px, env(safe-area-inset-top)); transform: translate(-50%, 0);
@@ -74,6 +97,7 @@ button, input, select { font: inherit; color: inherit; }
 .toolbar button:active { transform: scale(0.97); background: rgba(255,255,255,.12); }
 .toolbar .dot { width: 8px; height: 8px; border-radius: 50%; background: #FF7A52; box-shadow: 0 0 0 1px #FF7A52; margin: 0 2px 0 4px; }
 .toolbar .name { font-weight: 650; letter-spacing: -0.005em; }
+.toolbar .i { width: 16px; height: 16px; }
 .toolbar .sep { width: 1px; height: 18px; background: rgba(255,255,255,.18); }
 
 /* Status pill: enters and leaves through the top edge (same path both ways). */
@@ -101,6 +125,6 @@ button, input, select { font: inherit; color: inherit; }
   .hud, .status { outline: 1px solid #fff; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .card, .toolbar, .status, .seg .thumb { transition: opacity 150ms ease !important; }
+  .card, .toolbar, .status, .seg .thumb, .links a { transition: opacity 150ms ease !important; }
   .stage video { transition: opacity 150ms ease; }
 }

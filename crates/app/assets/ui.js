@@ -40,6 +40,9 @@
   const ipEl = $('ip'), nameEl = $('name'), goBtn = $('go'), hint = $('hint');
   const segMirror = $('segMirror'), segExtend = $('segExtend'), thumb = $('thumb');
   const nameOut = $('nameOut'), modeBtn = $('modeBtn'), fsBtn = $('fsBtn'), dcBtn = $('dcBtn');
+  const modeIcon = $('modeIcon'), modeLabel = $('modeLabel'), fsIcon = $('fsIcon'), fsLabel = $('fsLabel');
+  // Buttons hold an icon plus a label span; change the parts, never textContent.
+  const setIcon = (use, name) => use.setAttribute('href', '#i-' + name);
 
   let mode = localStorage.getItem('mullion.mode') || 'mirror';
   ipEl.value = ipEl.value || localStorage.getItem('mullion.host') || '';
@@ -51,7 +54,8 @@
   function setMode(m, animate) {
     mode = m; localStorage.setItem('mullion.mode', m);
     segMirror.setAttribute('aria-pressed', m === 'mirror'); segExtend.setAttribute('aria-pressed', m === 'extend');
-    modeBtn.textContent = m === 'extend' ? 'Extend' : 'Mirror';
+    modeLabel.textContent = m === 'extend' ? 'Extend' : 'Mirror';
+    setIcon(modeIcon, m);
     animate ? thumbX.to(m === 'extend' ? 1 : 0) : thumbX.set(m === 'extend' ? 1 : 0);
   }
   setMode(mode, false);
@@ -121,6 +125,14 @@
   dcBtn.addEventListener('click', () => mullion.disconnect());
   modeBtn.addEventListener('click', () => { setMode(mode === 'extend' ? 'mirror' : 'extend', true); connect(); });
   fsBtn.addEventListener('click', () => { const d = document.documentElement; if (!document.fullscreenElement) (d.requestFullscreen || d.webkitRequestFullscreen).call(d); else (document.exitFullscreen || document.webkitExitFullscreen).call(document); });
+  function syncFullscreen() {
+    const on = !!(document.fullscreenElement || document.webkitFullscreenElement);
+    fsLabel.textContent = on ? 'Exit full screen' : 'Full screen';
+    fsBtn.title = fsLabel.textContent;
+    setIcon(fsIcon, on ? 'exit-fullscreen' : 'fullscreen');
+  }
+  document.addEventListener('fullscreenchange', syncFullscreen);
+  document.addEventListener('webkitfullscreenchange', syncFullscreen);
 
   // React to transitions only; a repeated status must not replay the entrance.
   let lastStatus = null;
