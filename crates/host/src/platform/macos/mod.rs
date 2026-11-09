@@ -66,6 +66,14 @@ impl Platform for MacOs {
         }
     }
 
+    fn displays(&self) -> Result<Vec<super::DisplayInfo>> {
+        arrange::list()
+    }
+
+    fn set_origins(&self, origins: &[(u32, i32, i32)]) -> Result<()> {
+        arrange::set_origins(origins)
+    }
+
     fn start_pipeline(&self, source: Source, cfg: &PipelineConfig, tx: Sender<EncodedFrame>) -> Result<Box<dyn Pipeline>> {
         let encoder = Arc::new(encode::VtEncoder::new(cfg, tx)?);
         let probe_on = cfg.probe_overlay;

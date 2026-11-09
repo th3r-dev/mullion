@@ -54,10 +54,11 @@ requestAnimationFrame(paint);
 pub fn receiver_html(host_ip: &str) -> String {
     let js = include_str!("../../app/assets/receiver.js");
     let ui_js = include_str!("../../app/assets/ui.js");
+    let layout_js = include_str!("../../app/assets/layout.js");
     let css = include_str!("../../app/assets/ui.css");
     let body = include_str!("../../app/assets/ui.html").replace(r#"<input id="ip""#, &format!(r#"<input id="ip" value="{host_ip}""#));
     format!(
-        "<!doctype html>\n<meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1,viewport-fit=cover\">\n<meta name=\"color-scheme\" content=\"light dark\">\n<meta name=\"theme-color\" content=\"#111418\">\n<title>Mullion</title>\n{ICON_LINKS}\n<style>{css}</style>\n{body}\n<script>{js}</script>\n<script>{ui_js}</script>\n"
+        "<!doctype html>\n<meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1,viewport-fit=cover\">\n<meta name=\"color-scheme\" content=\"light dark\">\n<meta name=\"theme-color\" content=\"#111418\">\n<title>Mullion</title>\n{ICON_LINKS}\n<style>{css}</style>\n{body}\n<script>{js}</script>\n<script>{ui_js}</script>\n<script>{layout_js}</script>\n"
     )
 }
 
