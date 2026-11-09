@@ -3,3 +3,4 @@ target/
 /logs/*.jsonl
 /logs/*.out
 /crates/app/dist/
+/.env

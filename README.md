@@ -51,6 +51,17 @@ behind one Rust trait. Pairing, transport, the UI and the Android app are shared
 | [docs/TEST_PLAN.md](docs/TEST_PLAN.md) | 29 tests covering every requirement in the SRS |
 | [brand/BRAND.md](brand/BRAND.md) | Name, mark, color, type, motion, cursor label, voice |
 
+## Running the host (macOS)
+
+```sh
+tools/run-host.sh                 # builds and runs; Terminal needs Screen Recording
+tools/run-host.sh --show-config   # effective switches
+cp .env.example .env              # then edit: MULLION_EXTEND=false, MULLION_DISPLAY_GRACE_SECS=0, ...
+```
+
+Open `http://<mac-ip>:47100/receiver` on a tablet. `/devices` lists who is
+connected and which screen they own; `/config` shows the live switches.
+
 ## Targets
 
 1080p at 60 fps per tablet, under 50 ms latency on 5 GHz Wi-Fi. For three tablets at

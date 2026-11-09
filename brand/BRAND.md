@@ -25,6 +25,10 @@ package IDs (`app.mullion.tablet`).
 - Keep clear space of one pane width (26 units) around the mark.
 - Below 24 px the cursor becomes noise; the two panes alone still read. Use the
   mark as is down to 16 px; draw a cursor-less favicon only if testing shows a problem.
+- The icon set (`favicon.ico` 16/32/48, SVG favicon, Apple touch 180, PWA 192/512,
+  maskable 512 on `--paper`, web manifest) is generated from `mark.svg` by
+  `tools/make-icons.py` into `crates/app/assets/icons/`. Raster icons use the
+  light variant; the SVG favicon keeps the theme switch.
 - The wordmark is live `system-ui` text. Convert it to paths before using the
   logo outside this repo (store pages, slides).
 

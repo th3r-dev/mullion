@@ -49,6 +49,20 @@ pub struct DeviceStatus {
     pub frames_sent: u64,
 }
 
+/// A screen whose device left; listed by `/devices` under `pending_removal`.
+#[derive(Debug, Clone, Serialize)]
+pub struct OrphanedScreen {
+    pub screen_name: String,
+    pub display_id: u32,
+    pub removes_in_secs: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct DevicesSnapshot {
+    pub devices: Vec<DeviceStatus>,
+    pub pending_removal: Vec<OrphanedScreen>,
+}
+
 pub enum Msg {
     NewRtc(Rtc, Mode, DeviceInfo),
     Packet { at: Instant, source: SocketAddr, destination: SocketAddr, data: Vec<u8> },
@@ -61,12 +75,12 @@ pub enum Msg {
 pub struct SessionHandle {
     tx: Sender<Msg>,
     local_addrs: Vec<SocketAddr>,
-    devices: Arc<Mutex<Vec<DeviceStatus>>>,
+    devices: Arc<Mutex<DevicesSnapshot>>,
 }
 
 impl SessionHandle {
     /// Snapshot of connected devices for `/devices`.
-    pub fn devices(&self) -> Vec<DeviceStatus> {
+    pub fn devices(&self) -> DevicesSnapshot {
         self.devices.lock().unwrap().clone()
     }
 
@@ -102,6 +116,10 @@ pub struct SessionConfig {
     pub pipeline: PipelineConfig,
     /// Allow Extend mode (creates a virtual display on first use).
     pub extend: bool,
+    /// How long an orphaned virtual display lingers (MULLION_DISPLAY_GRACE_SECS).
+    pub display_grace: Duration,
+    /// Several receivers at once; false = the newest offer replaces the rest.
+    pub multi_session: bool,
 }
 
 /// Start the UDP socket, the reader thread and the session thread.
@@ -150,7 +168,7 @@ pub fn start(
     info!("WebRTC media on UDP {}", local_addrs.iter().map(|a| a.to_string()).collect::<Vec<_>>().join(", "));
 
     let frame_tx = tx.clone();
-    let devices: Arc<Mutex<Vec<DeviceStatus>>> = Arc::new(Mutex::new(Vec::new()));
+    let devices: Arc<Mutex<DevicesSnapshot>> = Arc::new(Mutex::new(DevicesSnapshot::default()));
     let handle = SessionHandle { tx, local_addrs, devices: devices.clone() };
     let join = std::thread::Builder::new().name("mullion-session".into()).spawn(move || {
         let mut loop_state = SessionLoop {
@@ -165,6 +183,8 @@ pub fn start(
             displays: HashMap::new(),
             next_serial: 1,
             extend_allowed: cfg.extend,
+            display_grace: cfg.display_grace,
+            multi_session: cfg.multi_session,
             devices,
             idr: IdrLimiter::default_policy(),
             next_id: 0,
@@ -191,7 +211,15 @@ struct Active {
 struct OwnedDisplay {
     display: Box<dyn VirtualDisplay>,
     name: String,
+    /// Set when the owning device has no session; the display is removed once
+    /// this is older than [`DISPLAY_GRACE`]. Cleared on reconnect.
+    orphaned_at: Option<Instant>,
 }
+
+/// Default for how long a device's virtual display survives after its last
+/// session ends: long enough for a Wi-Fi hiccup or a mode switch, short enough
+/// that a tablet that walked away does not leave a ghost monitor.
+pub const DISPLAY_GRACE: Duration = Duration::from_secs(30);
 
 struct SessionLoop {
     sockets: HashMap<SocketAddr, UdpSocket>,
@@ -212,7 +240,9 @@ struct SessionLoop {
     displays: HashMap<String, OwnedDisplay>,
     next_serial: u32,
     extend_allowed: bool,
-    devices: Arc<Mutex<Vec<DeviceStatus>>>,
+    display_grace: Duration,
+    multi_session: bool,
+    devices: Arc<Mutex<DevicesSnapshot>>,
     idr: IdrLimiter,
     next_id: u64,
 }
@@ -232,6 +262,9 @@ impl SessionLoop {
                 Some(Msg::Shutdown) => break,
                 Some(Msg::NewRtc(rtc, mode, device)) => {
                     self.next_id += 1;
+                    if !self.multi_session {
+                        self.end_all("replaced by a new offer (single-session mode)");
+                    }
                     // A device that reconnects (same id) replaces its old session.
                     if let Some(id) = device.id.as_deref() {
                         if let Some(old) = self.sessions.iter().position(|a| a.device.id.as_deref() == Some(id)) {
@@ -298,7 +331,13 @@ impl SessionLoop {
             // Drain after every mutation (str0m's single-mutation invariant).
             // Draining every session is cheap and keeps the invariant simple.
             next_timeout = self.drain_all();
+            self.reap_displays();
             self.publish_devices();
+            // Wake at least once a second so grace periods expire without traffic.
+            let tick = Instant::now() + Duration::from_secs(1);
+            if tick < next_timeout {
+                next_timeout = tick;
+            }
         }
         self.end_all("shutdown");
     }
@@ -427,13 +466,17 @@ impl SessionLoop {
                     self.next_serial += 1;
                     match self.platform.create_virtual_display(c.width, c.height, c.fps, &name, serial)? {
                         Some(vd) => {
-                            self.displays.insert(key.clone(), OwnedDisplay { display: vd, name: name.clone() });
+                            self.displays.insert(key.clone(), OwnedDisplay { display: vd, name: name.clone(), orphaned_at: None });
                         }
                         None => anyhow::bail!("This OS cannot create a virtual display yet"),
                     }
                     self.log.record(Record::Event { at_ms: now_ms(), what: format!("virtual display created: {name}") });
                 }
-                self.displays[&key].display.source()
+                let d = self.displays.get_mut(&key).unwrap();
+                if d.orphaned_at.take().is_some() {
+                    info!("{} reclaimed by its device", d.name);
+                }
+                d.display.source()
             }
         };
         if self.pipelines.contains_key(&source) {
@@ -480,7 +523,20 @@ impl SessionLoop {
                 }
             })
             .collect();
-        *self.devices.lock().unwrap() = rows;
+        let now = Instant::now();
+        let pending_removal: Vec<OrphanedScreen> = self
+            .displays
+            .values()
+            .filter_map(|d| {
+                let t = d.orphaned_at?;
+                let id = match d.display.source() {
+                    Source::Virtual(id) => id,
+                    _ => return None,
+                };
+                Some(OrphanedScreen { screen_name: d.name.clone(), display_id: id, removes_in_secs: self.display_grace.saturating_sub(now.duration_since(t)).as_secs() })
+            })
+            .collect();
+        *self.devices.lock().unwrap() = DevicesSnapshot { devices: rows, pending_removal };
     }
 
     fn on_probe(&mut self, i: usize, data: &[u8]) {
@@ -531,8 +587,35 @@ impl SessionLoop {
                 if let Some(mut p) = self.pipelines.remove(&src) {
                     p.stop();
                 }
-                // The device's virtual display stays until the host exits, so a
-                // reconnecting Extend tablet keeps its window layout.
+                // The device's screen stays for DISPLAY_GRACE so a reconnect gets
+                // its window layout back; after that it is removed (see `reap_displays`).
+                if let Source::Virtual(id) = src {
+                    for d in self.displays.values_mut() {
+                        if d.display.source() == Source::Virtual(id) && d.orphaned_at.is_none() {
+                            d.orphaned_at = Some(Instant::now());
+                            info!("{} kept for {} s in case {} comes back", d.name, self.display_grace.as_secs(), a.device.name);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Remove virtual displays whose device has been gone longer than the grace period.
+    fn reap_displays(&mut self) {
+        let now = Instant::now();
+        let gone: Vec<String> = self
+            .displays
+            .iter()
+            .filter(|(_, d)| d.orphaned_at.map(|t| now.duration_since(t) >= self.display_grace).unwrap_or(false))
+            .map(|(k, _)| k.clone())
+            .collect();
+        for k in gone {
+            if let Some(d) = self.displays.remove(&k) {
+                info!("{} removed: its device did not come back", d.name);
+                self.log.record(Record::Event { at_ms: now_ms(), what: format!("virtual display removed: {}", d.name) });
+                self.platform.virtual_display_removed(d.display.source());
+                drop(d);
             }
         }
     }
@@ -586,7 +669,7 @@ impl crate::signaling::OfferHandler for SharedHandle {
         self.0.lock().unwrap().answer(offer_sdp, mode, device)
     }
 
-    fn devices(&self) -> Vec<DeviceStatus> {
+    fn devices(&self) -> DevicesSnapshot {
         self.0.lock().unwrap().devices()
     }
 }

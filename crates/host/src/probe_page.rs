@@ -6,6 +6,7 @@
 pub const PROBE_HTML: &str = r##"<!doctype html>
 <meta charset="utf-8">
 <title>Mullion probe</title>
+<link rel="icon" href="/favicon.ico">
 <style>
   html,body{margin:0;height:100%;background:#808080;overflow:hidden;font:14px system-ui}
   canvas{display:block;width:100vw;height:100vh}
@@ -56,6 +57,30 @@ pub fn receiver_html(host_ip: &str) -> String {
     let css = include_str!("../../app/assets/ui.css");
     let body = include_str!("../../app/assets/ui.html").replace(r#"<input id="ip""#, &format!(r#"<input id="ip" value="{host_ip}""#));
     format!(
-        "<!doctype html>\n<meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1,viewport-fit=cover\">\n<meta name=\"color-scheme\" content=\"light dark\">\n<title>Mullion</title>\n<style>{css}</style>\n{body}\n<script>{js}</script>\n<script>{ui_js}</script>\n"
+        "<!doctype html>\n<meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1,viewport-fit=cover\">\n<meta name=\"color-scheme\" content=\"light dark\">\n<meta name=\"theme-color\" content=\"#111418\">\n<title>Mullion</title>\n{ICON_LINKS}\n<style>{css}</style>\n{body}\n<script>{js}</script>\n<script>{ui_js}</script>\n"
     )
+}
+
+/// `<head>` links for the icon set served under `/icons/`.
+pub const ICON_LINKS: &str = r#"<link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48">
+<link rel="icon" type="image/svg+xml" href="/icons/favicon.svg">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="manifest" href="/icons/manifest.webmanifest">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Mullion">"#;
+
+/// Static icon files, embedded in the binary.
+pub fn icon_file(path: &str) -> Option<(&'static [u8], &'static str)> {
+    Some(match path {
+        "/favicon.ico" | "/icons/favicon.ico" => (include_bytes!("../../app/assets/icons/favicon.ico"), "image/x-icon"),
+        "/icons/favicon.svg" => (include_bytes!("../../app/assets/icons/favicon.svg"), "image/svg+xml"),
+        "/icons/apple-touch-icon.png" => (include_bytes!("../../app/assets/icons/apple-touch-icon.png"), "image/png"),
+        "/icons/icon-192.png" => (include_bytes!("../../app/assets/icons/icon-192.png"), "image/png"),
+        "/icons/icon-512.png" => (include_bytes!("../../app/assets/icons/icon-512.png"), "image/png"),
+        "/icons/icon-maskable-512.png" => (include_bytes!("../../app/assets/icons/icon-maskable-512.png"), "image/png"),
+        "/icons/manifest.webmanifest" => (include_bytes!("../../app/assets/icons/manifest.webmanifest"), "application/manifest+json"),
+        _ => return None,
+    })
 }

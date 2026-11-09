@@ -11,18 +11,18 @@ use std::sync::Arc;
 
 use anyhow::{anyhow, Context, Result};
 use mullion_proto::signal::{clean_device_name, parse_offer, valid_device_id, Mode, MAX_BODY_BYTES};
-use crate::session::{DeviceInfo, DeviceStatus};
+use crate::session::{DeviceInfo, DevicesSnapshot};
 use serde::Serialize;
 use tiny_http::{Header, Method, Request, Response, Server, StatusCode};
 use tracing::{info, warn};
 
-use crate::probe_page::{receiver_html, PROBE_HTML};
+use crate::probe_page::{icon_file, receiver_html, PROBE_HTML};
 
 /// What the server hands a validated offer to. Returns the answer SDP.
 pub trait OfferHandler: Send + Sync + 'static {
     fn answer(&self, offer_sdp: &str, mode: Mode, device: DeviceInfo, peer: SocketAddr) -> Result<String>;
-    fn devices(&self) -> Vec<DeviceStatus> {
-        Vec::new()
+    fn devices(&self) -> DevicesSnapshot {
+        DevicesSnapshot::default()
     }
 }
 
@@ -46,6 +46,7 @@ pub struct Signaling {
     server: Server,
     handler: Arc<dyn OfferHandler>,
     host_name: String,
+    config: serde_json::Value,
 }
 
 impl Signaling {
@@ -55,7 +56,13 @@ impl Signaling {
         let server = Server::http(addr).map_err(|e| {
             anyhow!("Can't listen on port {}: {}. Pick another with --port.", addr.port(), e)
         })?;
-        Ok(Self { server, handler, host_name })
+        Ok(Self { server, handler, host_name, config: serde_json::Value::Null })
+    }
+
+    /// Effective switches, served at `/config`.
+    pub fn with_config(mut self, config: serde_json::Value) -> Self {
+        self.config = config;
+        self
     }
 
     pub fn local_addr(&self) -> SocketAddr {
@@ -144,9 +151,21 @@ impl Signaling {
                     .with_header(Header::from_bytes("Cache-Control", "no-store").unwrap());
                 req.respond(with_cors(resp)).context("respond")
             }
+            ("/config", Method::Get) => {
+                let body = serde_json::to_vec_pretty(&self.config)?;
+                let resp = Response::from_data(body).with_header(Header::from_bytes("Content-Type", "application/json").unwrap());
+                req.respond(with_cors(resp)).context("respond")
+            }
             ("/devices", Method::Get) => {
                 let body = serde_json::to_vec(&self.handler.devices())?;
                 let resp = Response::from_data(body).with_header(Header::from_bytes("Content-Type", "application/json").unwrap());
+                req.respond(with_cors(resp)).context("respond")
+            }
+            (p, Method::Get | Method::Head) if icon_file(p).is_some() => {
+                let (bytes, mime) = icon_file(p).unwrap();
+                let resp = Response::from_data(bytes.to_vec())
+                    .with_header(Header::from_bytes("Content-Type", mime).unwrap())
+                    .with_header(Header::from_bytes("Cache-Control", "public, max-age=86400").unwrap());
                 req.respond(with_cors(resp)).context("respond")
             }
             ("/health", Method::Get) => {
@@ -235,6 +254,24 @@ mod tests {
         assert_eq!(r.status(), 200);
         let r = a.get(&format!("http://{addr}/probe")).call().unwrap();
         assert!(r.into_string().unwrap().contains("Mullion probe"));
+    }
+
+    #[test]
+    fn icons_and_manifest_are_served() {
+        let addr = start(echo_handler);
+        let a = agent();
+        let r = a.get(&format!("http://{addr}/favicon.ico")).call().unwrap();
+        assert_eq!(r.header("Content-Type"), Some("image/x-icon"));
+        let mut buf = Vec::new();
+        r.into_reader().read_to_end(&mut buf).unwrap();
+        assert_eq!(&buf[..4], &[0, 0, 1, 0], "ICO header");
+        let r = a.get(&format!("http://{addr}/icons/manifest.webmanifest")).call().unwrap();
+        let m: serde_json::Value = r.into_json().unwrap();
+        assert_eq!(m["name"], "Mullion");
+        assert_eq!(m["icons"].as_array().unwrap().len(), 3);
+        let r = a.get(&format!("http://{addr}/receiver")).call().unwrap();
+        let html = r.into_string().unwrap();
+        assert!(html.contains(r#"rel="manifest""#) && html.contains("apple-touch-icon"));
     }
 
     #[test]
