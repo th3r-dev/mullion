@@ -4,6 +4,7 @@ name = "mullion"
 [bundle]
 identifier = "app.mullion.tablet"
 publisher = "Mullion"
+icon = ["assets/icons/icon-512.png", "assets/icons/icon-192.png"]
 
 [android]
 min_sdk = 26

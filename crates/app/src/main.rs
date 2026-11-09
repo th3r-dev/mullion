@@ -29,6 +29,7 @@ fn App() -> Element {
 
     rsx! {
         document::Meta { name: "color-scheme", content: "light dark" }
+        document::Link { rel: "icon", r#type: "image/svg+xml", href: asset!("/assets/icons/favicon.svg") }
         document::Meta { name: "viewport", content: "width=device-width,initial-scale=1,viewport-fit=cover" }
         style { {UI_CSS} }
         div { dangerous_inner_html: UI_HTML }

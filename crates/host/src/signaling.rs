@@ -16,7 +16,7 @@ use serde::Serialize;
 use tiny_http::{Header, Method, Request, Response, Server, StatusCode};
 use tracing::{info, warn};
 
-use crate::probe_page::{receiver_html, PROBE_HTML};
+use crate::probe_page::{icon_file, receiver_html, PROBE_HTML};
 
 /// What the server hands a validated offer to. Returns the answer SDP.
 pub trait OfferHandler: Send + Sync + 'static {
@@ -161,6 +161,13 @@ impl Signaling {
                 let resp = Response::from_data(body).with_header(Header::from_bytes("Content-Type", "application/json").unwrap());
                 req.respond(with_cors(resp)).context("respond")
             }
+            (p, Method::Get) if icon_file(p).is_some() => {
+                let (bytes, mime) = icon_file(p).unwrap();
+                let resp = Response::from_data(bytes.to_vec())
+                    .with_header(Header::from_bytes("Content-Type", mime).unwrap())
+                    .with_header(Header::from_bytes("Cache-Control", "public, max-age=86400").unwrap());
+                req.respond(with_cors(resp)).context("respond")
+            }
             ("/health", Method::Get) => {
                 let resp = Response::from_string(format!("mullion-host {}\n", self.host_name));
                 req.respond(with_cors(resp)).context("respond")
@@ -247,6 +254,24 @@ mod tests {
         assert_eq!(r.status(), 200);
         let r = a.get(&format!("http://{addr}/probe")).call().unwrap();
         assert!(r.into_string().unwrap().contains("Mullion probe"));
+    }
+
+    #[test]
+    fn icons_and_manifest_are_served() {
+        let addr = start(echo_handler);
+        let a = agent();
+        let r = a.get(&format!("http://{addr}/favicon.ico")).call().unwrap();
+        assert_eq!(r.header("Content-Type"), Some("image/x-icon"));
+        let mut buf = Vec::new();
+        r.into_reader().read_to_end(&mut buf).unwrap();
+        assert_eq!(&buf[..4], &[0, 0, 1, 0], "ICO header");
+        let r = a.get(&format!("http://{addr}/icons/manifest.webmanifest")).call().unwrap();
+        let m: serde_json::Value = r.into_json().unwrap();
+        assert_eq!(m["name"], "Mullion");
+        assert_eq!(m["icons"].as_array().unwrap().len(), 3);
+        let r = a.get(&format!("http://{addr}/receiver")).call().unwrap();
+        let html = r.into_string().unwrap();
+        assert!(html.contains(r#"rel="manifest""#) && html.contains("apple-touch-icon"));
     }
 
     #[test]
