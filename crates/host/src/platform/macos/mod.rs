@@ -1,5 +1,6 @@
 //! macOS: ScreenCaptureKit for capture, VideoToolbox for H.264.
 
+mod arrange;
 mod capture;
 mod encode;
 mod overlay;
@@ -28,6 +29,9 @@ unsafe impl Sync for SendImage {}
 
 pub struct MacOs;
 
+/// Display ids of the virtual displays this host created, in creation order.
+static OUR_DISPLAYS: Mutex<Vec<u32>> = Mutex::new(Vec::new());
+
 impl Platform for MacOs {
     fn name(&self) -> &'static str {
         "macOS (ScreenCaptureKit + VideoToolbox)"
@@ -35,6 +39,14 @@ impl Platform for MacOs {
 
     fn create_virtual_display(&self, w: u32, h: u32, hz: u32, name: &str, serial: u32) -> Result<Option<Box<dyn VirtualDisplay>>> {
         let vd = virtual_display::VirtualDisplay::create(w, h, hz, name, serial)?;
+        // Give macOS a moment to register the display, then keep the Mac's own
+        // screen as main and line ours up to its right.
+        std::thread::sleep(Duration::from_millis(400));
+        let mut ours = OUR_DISPLAYS.lock().unwrap();
+        ours.push(vd.display_id);
+        if let Err(e) = arrange::arrange(&ours) {
+            warn!("arrange displays: {e:#}");
+        }
         Ok(Some(Box::new(vd)))
     }
 
@@ -131,5 +143,11 @@ impl Drop for MacPipeline {
 impl VirtualDisplay for virtual_display::VirtualDisplay {
     fn source(&self) -> Source {
         Source::Virtual(self.display_id)
+    }
+}
+
+impl Drop for MacOs {
+    fn drop(&mut self) {
+        OUR_DISPLAYS.lock().unwrap().clear();
     }
 }
