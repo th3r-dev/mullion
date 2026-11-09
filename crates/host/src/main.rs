@@ -42,6 +42,9 @@ struct Args {
     /// Timing log path (JSON lines). Default: logs/host-<unix>.jsonl
     #[arg(long)]
     log: Option<PathBuf>,
+    /// Disable Extend mode (no virtual display; avoids the private CGVirtualDisplay API).
+    #[arg(long, default_value_t = false)]
+    no_extend: bool,
     /// Do not burn the latency probe strip into the frames.
     #[arg(long, default_value_t = false)]
     no_probe: bool,
@@ -101,7 +104,7 @@ fn main() -> Result<()> {
         ..Default::default()
     };
     let (handle, session_thread) =
-        session::start(session::SessionConfig { advertise_ips: ips.clone(), pipeline }, platform, log.clone())?;
+        session::start(session::SessionConfig { advertise_ips: ips.clone(), pipeline, extend: !args.no_extend }, platform, log.clone())?;
 
     let addr = SocketAddr::new(args.bind, args.port);
     let signaling = signaling::Signaling::bind(addr, Arc::new(session::SharedHandle(Mutex::new(handle))), host_name.clone())?;

@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Result};
 use mullion_proto::keyframe::IdrLimiter;
-use mullion_proto::signal::ProbeMessage;
+use mullion_proto::signal::{Mode, ProbeMessage};
 use str0m::change::SdpOffer;
 use str0m::channel::ChannelId;
 use str0m::format::Codec;
@@ -22,13 +22,13 @@ use str0m::net::{Protocol, Receive};
 use str0m::{Candidate, Event, IceConnectionState, Input, Output, Rtc};
 use tracing::{debug, info, warn};
 
-use crate::platform::{EncodedFrame, Pipeline, PipelineConfig, Platform};
+use crate::platform::{EncodedFrame, Pipeline, PipelineConfig, Platform, Source, VirtualDisplay};
 use crate::timing::{now_ms, Record, TimingLog};
 
 pub enum Msg {
-    NewRtc(Rtc),
+    NewRtc(Rtc, Mode),
     Packet { at: Instant, source: SocketAddr, destination: SocketAddr, data: Vec<u8> },
-    Frame(EncodedFrame),
+    Frame(Source, EncodedFrame),
     Shutdown,
 }
 
@@ -40,7 +40,7 @@ pub struct SessionHandle {
 }
 
 impl SessionHandle {
-    pub fn answer(&self, offer_sdp: &str) -> Result<String> {
+    pub fn answer(&self, offer_sdp: &str, mode: Mode) -> Result<String> {
         let offer = SdpOffer::from_sdp_string(offer_sdp).map_err(|e| anyhow!("bad SDP: {e}"))?;
         let mut rtc = Rtc::builder()
             .set_ice_lite(true)
@@ -56,7 +56,7 @@ impl SessionHandle {
             }
         }
         let answer = rtc.sdp_api().accept_offer(offer).map_err(|e| anyhow!("accept offer: {e}"))?;
-        self.tx.send(Msg::NewRtc(rtc)).map_err(|_| anyhow!("session thread gone"))?;
+        self.tx.send(Msg::NewRtc(rtc, mode)).map_err(|_| anyhow!("session thread gone"))?;
         Ok(answer.to_sdp_string())
     }
 
@@ -70,6 +70,8 @@ pub struct SessionConfig {
     /// that matches an ICE candidate.
     pub advertise_ips: Vec<std::net::IpAddr>,
     pub pipeline: PipelineConfig,
+    /// Allow Extend mode (creates a virtual display on first use).
+    pub extend: bool,
 }
 
 /// Start the UDP socket, the reader thread and the session thread.
@@ -128,7 +130,9 @@ pub fn start(
             pipeline_cfg: cfg.pipeline,
             log,
             sessions: Vec::new(),
-            pipeline: None,
+            pipelines: HashMap::new(),
+            virtual_display: None,
+            extend_allowed: cfg.extend,
             idr: IdrLimiter::default_policy(),
             next_id: 0,
         };
@@ -139,6 +143,8 @@ pub fn start(
 
 struct Active {
     id: u64,
+    mode: Mode,
+    source: Option<Source>,
     rtc: Rtc,
     /// Remote address once ICE picks a pair; used to route incoming packets.
     peer: Option<SocketAddr>,
@@ -158,7 +164,11 @@ struct SessionLoop {
     /// All receivers. PoC 1 is specified for one, but several make testing
     /// (tablet + loopback) possible; they share one pipeline (PLAN step 8, Mirror).
     sessions: Vec<Active>,
-    pipeline: Option<Box<dyn Pipeline>>,
+    /// One pipeline per captured source; Mirror sessions share Main, Extend
+    /// sessions share the virtual display.
+    pipelines: HashMap<Source, Box<dyn Pipeline>>,
+    virtual_display: Option<Box<dyn VirtualDisplay>>,
+    extend_allowed: bool,
     idr: IdrLimiter,
     next_id: u64,
 }
@@ -176,11 +186,13 @@ impl SessionLoop {
             let mut touched: Vec<usize> = Vec::new();
             match msg {
                 Some(Msg::Shutdown) => break,
-                Some(Msg::NewRtc(rtc)) => {
+                Some(Msg::NewRtc(rtc, mode)) => {
                     self.next_id += 1;
-                    self.log.record(Record::Event { at_ms: now_ms(), what: format!("offer accepted #{}", self.next_id) });
+                    self.log.record(Record::Event { at_ms: now_ms(), what: format!("offer accepted #{} ({mode:?})", self.next_id) });
                     self.sessions.push(Active {
                         id: self.next_id,
+                        mode,
+                        source: None,
                         rtc,
                         peer: None,
                         video_mid: None,
@@ -211,10 +223,12 @@ impl SessionLoop {
                         }
                     }
                 }
-                Some(Msg::Frame(frame)) => {
+                Some(Msg::Frame(source, frame)) => {
+                    let mut logged = false;
                     for (i, a) in self.sessions.iter_mut().enumerate() {
-                        if a.connected {
-                            write_frame(a, &frame, &self.log, i == 0);
+                        if a.connected && a.source == Some(source) {
+                            write_frame(a, &frame, &self.log, !logged && source == Source::Main);
+                            logged = true;
                             touched.push(i);
                         }
                     }
@@ -306,13 +320,19 @@ impl SessionLoop {
                         if !self.sessions[i].connected {
                             self.sessions[i].connected = true;
                             self.log.record(Record::Event { at_ms: now_ms(), what: format!("connected #{}", self.sessions[i].id) });
-                            if let Err(e) = self.ensure_pipeline() {
-                                warn!("pipeline: {e:#}");
-                                return Some("pipeline failed");
-                            }
-                            // A joining receiver needs an IDR to start decoding.
-                            if let Some(p) = self.pipeline.as_ref() {
-                                p.request_idr();
+                            let mode = self.sessions[i].mode;
+                            match self.ensure_pipeline(mode) {
+                                Ok(src) => {
+                                    self.sessions[i].source = Some(src);
+                                    // A joining receiver needs an IDR to start decoding.
+                                    if let Some(p) = self.pipelines.get(&src) {
+                                        p.request_idr();
+                                    }
+                                }
+                                Err(e) => {
+                                    warn!("pipeline: {e:#}");
+                                    return Some("pipeline failed");
+                                }
                             }
                         }
                     }
@@ -326,7 +346,7 @@ impl SessionLoop {
                 self.log.record(Record::Pli { at_ms: now_ms(), granted });
                 debug!("#{} keyframe request {:?} granted={granted}", self.sessions[i].id, k.kind);
                 if granted {
-                    if let Some(p) = self.pipeline.as_ref() {
+                    if let Some(p) = self.sessions[i].source.and_then(|s| self.pipelines.get(&s)) {
                         p.request_idr();
                     }
                 }
@@ -337,21 +357,41 @@ impl SessionLoop {
         None
     }
 
-    fn ensure_pipeline(&mut self) -> Result<()> {
-        if self.pipeline.is_some() {
-            return Ok(());
+    /// The capture source for `mode`, starting its pipeline (and the virtual
+    /// display) if needed.
+    fn ensure_pipeline(&mut self, mode: Mode) -> Result<Source> {
+        let source = match mode {
+            Mode::Mirror => Source::Main,
+            Mode::Extend => {
+                if !self.extend_allowed {
+                    anyhow::bail!("Extend mode is off on this host (--no-extend)");
+                }
+                if self.virtual_display.is_none() {
+                    let c = &self.pipeline_cfg;
+                    match self.platform.create_virtual_display(c.width, c.height, c.fps)? {
+                        Some(vd) => self.virtual_display = Some(vd),
+                        None => anyhow::bail!("This OS cannot create a virtual display yet"),
+                    }
+                    self.log.record(Record::Event { at_ms: now_ms(), what: "virtual display created".into() });
+                }
+                self.virtual_display.as_ref().unwrap().source()
+            }
+        };
+        if self.pipelines.contains_key(&source) {
+            return Ok(source);
         }
         let (ptx, prx) = mpsc::channel::<EncodedFrame>();
         let ftx = self.frame_tx.clone();
         std::thread::spawn(move || {
             for f in prx {
-                if ftx.send(Msg::Frame(f)).is_err() {
+                if ftx.send(Msg::Frame(source, f)).is_err() {
                     break;
                 }
             }
         });
-        self.pipeline = Some(self.platform.start_pipeline(&self.pipeline_cfg, ptx)?);
-        Ok(())
+        let p = self.platform.start_pipeline(source, &self.pipeline_cfg, ptx)?;
+        self.pipelines.insert(source, p);
+        Ok(source)
     }
 
     fn on_probe(&mut self, i: usize, data: &[u8]) {
@@ -396,10 +436,14 @@ impl SessionLoop {
         info!("#{} session ended: {reason} ({} frames sent)", a.id, a.frames_sent);
         self.log.record(Record::Event { at_ms: now_ms(), what: format!("session #{} ended: {reason}", a.id) });
         self.log.flush();
-        // FR-7: last receiver gone -> stop capture, free the encoder.
-        if self.sessions.iter().all(|s| !s.connected) {
-            if let Some(mut p) = self.pipeline.take() {
-                p.stop();
+        // FR-7: last receiver of a source gone -> stop that capture, free its encoder.
+        if let Some(src) = a.source {
+            if !self.sessions.iter().any(|s| s.connected && s.source == Some(src)) {
+                if let Some(mut p) = self.pipelines.remove(&src) {
+                    p.stop();
+                }
+                // The virtual display stays until the host exits, so a
+                // reconnecting Extend tablet keeps its window layout.
             }
         }
     }
@@ -444,7 +488,7 @@ fn write_frame(a: &mut Active, frame: &EncodedFrame, log: &TimingLog, log_it: bo
 pub struct SharedHandle(pub Mutex<SessionHandle>);
 
 impl crate::signaling::OfferHandler for SharedHandle {
-    fn answer(&self, offer_sdp: &str, _peer: SocketAddr) -> Result<String> {
-        self.0.lock().unwrap().answer(offer_sdp)
+    fn answer(&self, offer_sdp: &str, mode: Mode, _peer: SocketAddr) -> Result<String> {
+        self.0.lock().unwrap().answer(offer_sdp, mode)
     }
 }

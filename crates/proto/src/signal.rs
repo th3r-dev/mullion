@@ -14,9 +14,22 @@ pub const MAX_BODY_BYTES: usize = 64 * 1024;
 /// Default mDNS-less service name used in logs and the probe page title.
 pub const SERVICE_NAME: &str = "mullion";
 
+/// What a receiver wants to see (PLAN.md "Three modes per device"; Control is step 9).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Mode {
+    /// A copy of the main display.
+    #[default]
+    Mirror,
+    /// Its own part of the desktop, on a virtual display.
+    Extend,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Offer {
     pub sdp: String,
+    #[serde(default)]
+    pub mode: Mode,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -72,6 +85,10 @@ mod tests {
     fn offer_ok() {
         let o = parse_offer(br#"{"sdp":"v=0\r\no=- 1 1 IN IP4 0.0.0.0\r\n"}"#).unwrap();
         assert!(o.sdp.starts_with("v=0"));
+        assert_eq!(o.mode, Mode::Mirror);
+        let o = parse_offer(br#"{"sdp":"v=0","mode":"extend"}"#).unwrap();
+        assert_eq!(o.mode, Mode::Extend);
+        assert_eq!(parse_offer(br#"{"sdp":"v=0","mode":"control"}"#).unwrap_err(), 400);
     }
 
     #[test]

@@ -17,6 +17,7 @@ fn main() {
 #[serde(rename_all = "camelCase", default)]
 struct Stats {
     status: String,
+    mode: Option<String>,
     error: Option<String>,
     host_name: Option<String>,
     offset_ms: Option<f64>,
@@ -38,6 +39,7 @@ fn App() -> Element {
     let mut host = use_signal(|| String::new());
     let mut stats = use_signal(Stats::default);
     let mut full = use_signal(|| false);
+    let mut mode = use_signal(|| "mirror".to_string());
 
     // Load receiver.js once and poll its stats 4x a second.
     use_future(move || async move {
@@ -59,7 +61,11 @@ fn App() -> Element {
         if ip.is_empty() {
             return;
         }
-        let js = format!("mullion.connect({}, document.getElementById('v'));", serde_json::to_string(&ip).unwrap());
+        let js = format!(
+            "mullion.connect({}, document.getElementById('v'), {{mode: {}}});",
+            serde_json::to_string(&ip).unwrap(),
+            serde_json::to_string(&*mode.read()).unwrap()
+        );
         let _ = eval(&js);
     };
     let disconnect = move |_| {
@@ -99,6 +105,12 @@ fn App() -> Element {
                     oninput: move |e| host.set(e.value()),
                     inputmode: "decimal",
                 }
+                select {
+                    value: "{mode}",
+                    onchange: move |e| mode.set(e.value()),
+                    option { value: "mirror", "Mirror" }
+                    option { value: "extend", "Extend" }
+                }
                 button { class: "primary", onclick: connect, "Connect" }
                 button { onclick: disconnect, "Disconnect" }
                 button { onclick: move |_| full.toggle(), if *full.read() { "Exit full screen" } else { "Full screen" } }
@@ -106,7 +118,7 @@ fn App() -> Element {
             }
             video { id: "v", muted: true, autoplay: true, playsinline: true }
             div { class: "hud",
-                "{s.status} {s.video_width}x{s.video_height}  offset {f(s.offset_ms)} rtt {f(s.rtt_ms)}\n"
+                "{s.mode.clone().unwrap_or_default()} {s.status} {s.video_width}x{s.video_height}  offset {f(s.offset_ms)} rtt {f(s.rtt_ms)}\n"
                 "presented {s.presented} decoded {s.decoded} fail {s.decode_fail} dropped {s.dropped}\n"
                 "g2g last {f(s.g2g_last)} p50 {f(s.g2g_p50)} p95 {f(s.g2g_p95)} ms\n"
                 "jbt {jbt}"
@@ -125,7 +137,7 @@ html,body{margin:0;background:#0F1113;color:#ECEDEE;font:15px system-ui;height:1
 .root{height:100vh;display:flex;flex-direction:column}
 .bar{display:flex;gap:8px;align-items:center;padding:8px 12px;background:#111418;flex-wrap:wrap}
 .fs .bar{display:none}
-input{font:inherit;padding:6px 8px;border-radius:6px;border:1px solid #2A2E33;background:#0F1113;color:#ECEDEE;width:200px;font-variant-numeric:tabular-nums}
+input,select{font:inherit;padding:6px 8px;border-radius:6px;border:1px solid #2A2E33;background:#0F1113;color:#ECEDEE;font-variant-numeric:tabular-nums} input{width:200px}
 button{font:inherit;padding:6px 12px;border-radius:6px;border:1px solid #2A2E33;background:#0F1113;color:#ECEDEE}
 button.primary{background:#5B93FF;color:#0F1113;border:0;font-weight:600}
 .status{font-size:13px;opacity:.9}

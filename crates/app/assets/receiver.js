@@ -28,7 +28,7 @@
   function snapshot() {
     const recent = state.g2g.slice(-600);
     return {
-      status: state.status, error: state.error, hostName: state.hostName, hostIp: state.hostIp,
+      status: state.status, error: state.error, hostName: state.hostName, hostIp: state.hostIp, mode: state.mode || 'mirror',
       offsetMs: state.offset, rttMs: state.rtt,
       presented: state.presented, decoded: state.decoded, decodeFail: state.decodeFail, dropped: state.dropped,
       g2gP50: p(recent, 0.5), g2gP95: p(recent, 0.95), g2gLast: recent.length ? recent[recent.length - 1] : null,
@@ -165,8 +165,9 @@
   async function connect(hostIp, videoEl, opts) {
     opts = opts || {};
     const port = opts.port || 47100;
+    const mode = opts.mode === 'extend' ? 'extend' : 'mirror';
     disconnect();
-    state.hostIp = hostIp; state.video = videoEl; state.error = null;
+    state.hostIp = hostIp; state.video = videoEl; state.error = null; state.mode = mode;
     state.g2g = []; state.samples = []; state.offset = null; state.presented = 0; state.decoded = 0; state.decodeFail = 0; state.dropped = 0; state.lastFrameTs = 0;
     setStatus('connecting');
     const pc = new RTCPeerConnection({ iceServers: [] });
@@ -203,7 +204,7 @@
       const to = setTimeout(() => ctrl.abort(), 5000);
       const resp = await fetch(`http://${hostIp}:${port}/offer`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'offer', sdp: pc.localDescription.sdp }), signal: ctrl.signal,
+        body: JSON.stringify({ type: 'offer', sdp: pc.localDescription.sdp, mode }), signal: ctrl.signal,
       });
       clearTimeout(to);
       if (!resp.ok) throw new Error(`${resp.status} ${await resp.text()}`);
