@@ -46,7 +46,10 @@ struct Args {
     /// Disable Extend mode (no virtual display; avoids the private CGVirtualDisplay API). Env: MULLION_EXTEND=false.
     #[arg(long, default_value_t = false)]
     no_extend: bool,
-    /// Do not burn the latency probe strip into the frames. Env: MULLION_PROBE=false.
+    /// Burn the latency probe strip into the top of every frame (latency runs). Env: MULLION_PROBE=true.
+    #[arg(long, default_value_t = false, conflicts_with = "no_probe")]
+    probe: bool,
+    /// Do not burn the latency probe strip into the frames (the default). Env: MULLION_PROBE=false.
     #[arg(long, default_value_t = false)]
     no_probe: bool,
     /// Seconds an orphaned virtual display lingers before removal. Env: MULLION_DISPLAY_GRACE_SECS.
@@ -81,6 +84,7 @@ fn main() -> Result<()> {
     if let Some(v) = args.display_grace_secs { sw.display_grace_secs = v; }
     if args.allow_software_encoder { sw.require_hw_encoder = false; }
     if args.no_extend { sw.extend = false; }
+    if args.probe { sw.probe = true; }
     if args.no_probe { sw.probe = false; }
     if args.no_arrange { sw.arrange = false; }
     if args.single_session { sw.multi_session = false; }
