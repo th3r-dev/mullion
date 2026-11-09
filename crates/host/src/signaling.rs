@@ -15,7 +15,7 @@ use serde::Serialize;
 use tiny_http::{Header, Method, Request, Response, Server, StatusCode};
 use tracing::{info, warn};
 
-use crate::probe_page::PROBE_HTML;
+use crate::probe_page::{receiver_html, PROBE_HTML};
 
 /// What the server hands a validated offer to. Returns the answer SDP.
 pub trait OfferHandler: Send + Sync + 'static {
@@ -123,7 +123,19 @@ impl Signaling {
                     .with_header(Header::from_bytes("Content-Type", "text/html; charset=utf-8").unwrap());
                 req.respond(with_cors(resp)).context("respond")
             }
-            ("/health", Method::Get) | ("/", Method::Get) => {
+            ("/receiver", Method::Get) | ("/", Method::Get) => {
+                // Prefill the host IP the request came in on.
+                let host_ip = req
+                    .headers()
+                    .iter()
+                    .find(|h| h.field.equiv("Host"))
+                    .map(|h| h.value.as_str().split(':').next().unwrap_or("").to_string())
+                    .unwrap_or_default();
+                let resp = Response::from_string(receiver_html(&host_ip))
+                    .with_header(Header::from_bytes("Content-Type", "text/html; charset=utf-8").unwrap());
+                req.respond(with_cors(resp)).context("respond")
+            }
+            ("/health", Method::Get) => {
                 let resp = Response::from_string(format!("mullion-host {}\n", self.host_name));
                 req.respond(with_cors(resp)).context("respond")
             }

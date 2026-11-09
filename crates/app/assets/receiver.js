@@ -93,7 +93,7 @@
 
   function onFrame(now, meta) {
     const v = state.video;
-    if (!v || state.status !== 'streaming') return;
+    if (!v || !state.pc) return;
     state.presented++;
     if (meta && meta.presentedFrames && state.lastFrameTs) {
       // presentedFrames counts frames the UA presented; gaps are drops.
@@ -212,7 +212,7 @@
     }
     state.hostName = answer.host_name || hostIp;
     await pc.setRemoteDescription({ type: 'answer', sdp: answer.sdp });
-    setStatus('connected');
+    if (state.status !== 'streaming') setStatus('connected');
   }
 
   function disconnect() {

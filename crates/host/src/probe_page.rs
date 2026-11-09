@@ -47,3 +47,37 @@ function paint(){
 requestAnimationFrame(paint);
 </script>
 "##;
+
+/// The browser receiver, served at `/receiver` so a tablet can test with Chrome
+/// before the Dioxus app is installed. Same JS as the app uses.
+pub fn receiver_html(host_ip: &str) -> String {
+    let js = include_str!("../../app/assets/receiver.js");
+    format!(r##"<!doctype html>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mullion receiver</title>
+<style>
+  html,body{{margin:0;background:#0F1113;color:#ECEDEE;font:15px system-ui;height:100%}}
+  #bar{{display:flex;gap:8px;align-items:center;padding:8px 12px;background:#111418}}
+  input{{font:inherit;padding:6px 8px;border-radius:6px;border:1px solid #2A2E33;background:#0F1113;color:#ECEDEE;width:160px}}
+  button{{font:inherit;padding:6px 12px;border-radius:6px;border:0;background:#5B93FF;color:#0F1113;font-weight:600}}
+  video{{display:block;width:100vw;height:calc(100vh - 44px);background:#000;object-fit:contain}}
+  #hud{{position:fixed;right:12px;bottom:12px;background:rgba(17,20,24,.86);padding:6px 10px;border-radius:6px;font-size:12px;font-variant-numeric:tabular-nums;white-space:pre}}
+  .fs #bar{{display:none}} .fs video{{height:100vh}}
+</style>
+<div id="bar"><input id="ip" value="{host_ip}"><button id="go">Connect</button><button id="full">Full screen</button><span id="st">idle</span></div>
+<video id="v" muted autoplay playsinline></video>
+<div id="hud"></div>
+<script>{js}</script>
+<script>
+  const ip=document.getElementById('ip'), st=document.getElementById('st'), hud=document.getElementById('hud');
+  document.getElementById('go').onclick=()=>mullion.connect(ip.value,document.getElementById('v'));
+  document.getElementById('full').onclick=()=>{{document.body.classList.add('fs');document.documentElement.requestFullscreen&&document.documentElement.requestFullscreen()}};
+  mullion.onStatus(s=>{{st.textContent=s.status+(s.error?' — '+s.error:'')+(s.hostName?' · '+s.hostName:'');}});
+  setInterval(()=>{{const s=mullion.stats();const f=x=>x==null?'–':x.toFixed(1);hud.textContent=
+`${{s.status}} ${{s.videoWidth}}x${{s.videoHeight}}  offset ${{f(s.offsetMs)}} rtt ${{f(s.rttMs)}}
+presented ${{s.presented}} decoded ${{s.decoded}} fail ${{s.decodeFail}} dropped ${{s.dropped}}
+g2g last ${{f(s.g2gLast)}} p50 ${{f(s.g2gP50)}} p95 ${{f(s.g2gP95)}} ms
+jbt ${{s.caps?(s.caps.jitter_buffer_target_supported?'yes '+s.caps.jitter_buffer_target_ms:'no'):'–'}}`;}},250);
+</script>
+"##)
+}
