@@ -282,7 +282,12 @@
   const knownPorts = new Map();
   function portFor(ip) {
     if (knownPorts.has(ip)) return knownPorts.get(ip);
-    if (/^https?:$/.test(location.protocol) && location.hostname === ip && location.port) return +location.port;
+    if (/^https?:$/.test(location.protocol) && location.hostname === ip) {
+      // Served by this host: it says where offers go (the page may have come
+      // from the web port, 80, which is not where they go).
+      if (window.MULLION_HOST_PORT) return +window.MULLION_HOST_PORT;
+      if (location.port) return +location.port;
+    }
     return 47100;
   }
   // "10.0.0.5" or "10.0.0.5:47199" -> { ip, port }
@@ -355,7 +360,7 @@
   async function scan(opts) {
     opts = opts || {};
     const servedByHost = /^https?:$/.test(location.protocol) && isIPv4(location.hostname);
-    const port = opts.port || (servedByHost && location.port ? +location.port : 47100);
+    const port = opts.port || (servedByHost ? portFor(location.hostname) : 47100);
     const signal = opts.signal;
     const found = new Map(), tried = new Set();
     let total = 0, done = 0, planned = 0;

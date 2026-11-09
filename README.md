@@ -63,7 +63,7 @@ tablets connect to, the devices connected, **Arrange Screens…**, **Allow Scree
 Recording…** while that permission is missing, **Show Logs**, and **Quit**. The
 first launch says where to find it. Logs are in `~/Library/Logs/Mullion`;
 settings go in `~/Library/Application Support/Mullion/mullion.env` (same
-`MULLION_*` keys as `.env`). Quit a terminal host first: both use port 47100.
+`MULLION_*` keys as `.env`). Quit a terminal host first: both use ports 47100 and 80.
 
 The package is ad-hoc signed and for Apple silicon. With an ad-hoc signature
 macOS asks for Screen Recording again after each rebuild; set
@@ -78,8 +78,12 @@ tools/run-host.sh --show-config   # effective switches
 cp .env.example .env              # then edit: MULLION_EXTEND=false, MULLION_DISPLAY_GRACE_SECS=0, ...
 ```
 
-Open `http://<mac-ip>:47100/receiver` on a tablet. `/devices` lists who is
-connected and which screen they own; `/config` shows the live switches.
+Open `http://<mac-ip>` on a tablet (**Copy Address** in the menu gives exactly
+that). The host serves the receiver on port 80 as well as 47100, so the bare
+address works in any browser; if port 80 is taken it says so in the log and the
+address it shows and copies becomes `<mac-ip>:47100`. `MULLION_WEB_PORT=0`
+turns port 80 off. `/devices` lists who is connected and which screen they
+own; `/config` shows the live switches.
 
 ## Finding the Mac
 

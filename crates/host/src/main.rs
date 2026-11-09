@@ -78,6 +78,9 @@ struct Args {
     /// Only check that a hardware encoder can be opened, then exit (T-22).
     #[arg(long, default_value_t = false)]
     check_encoder: bool,
+    /// Also serve on this port so the bare address opens in a browser (0 = off). Env: MULLION_WEB_PORT.
+    #[arg(long)]
+    web_port: Option<u16>,
     /// Run as the menu bar app (automatic inside Mullion.app).
     #[arg(long, default_value_t = false)]
     menu_bar: bool,
@@ -151,6 +154,7 @@ fn run(args: Args, app: Option<AppPaths>) -> Result<()> {
     // Env fills the defaults; explicit flags win.
     let mut sw = config::Switches::from_env();
     if let Some(v) = args.port { sw.port = v; }
+    if let Some(v) = args.web_port { sw.web_port = v; }
     if let Some(v) = args.width { sw.width = v; }
     if let Some(v) = args.height { sw.height = v; }
     if let Some(v) = args.fps { sw.fps = v; }
@@ -258,10 +262,18 @@ fn run(args: Args, app: Option<AppPaths>) -> Result<()> {
         Err(e) => return Err(e),
     }
         .with_config(serde_json::to_value(&sw)?)
-        .with_lan_ips(ips.iter().filter(|ip| !ip.is_loopback()).map(|ip| ip.to_string()).collect());
+        .with_lan_ips(ips.iter().filter(|ip| !ip.is_loopback()).map(|ip| ip.to_string()).collect())
+        .with_web_port(sw.web_port);
     let lan = ips.first().map(|ip| ip.to_string()).unwrap_or_else(|| "127.0.0.1".into());
-    info!("signaling on http://{lan}:{}/offer  receiver: http://{lan}:{}/receiver  config: /config", sw.port, sw.port);
-    println!("Mullion host {host_name}: enter {lan} on the tablet.");
+    // What to type in a browser: the bare address when port 80 is ours,
+    // otherwise address:port, so whatever is shown or copied opens Mullion.
+    let address = match signaling.web_port() {
+        Some(80) => lan.clone(),
+        Some(p) => format!("{lan}:{p}"),
+        None => format!("{lan}:{}", sw.port),
+    };
+    info!("signaling on http://{lan}:{}/offer  receiver: http://{address}/  config: /config", sw.port);
+    println!("Mullion host {host_name}: open http://{address} on the tablet.");
 
     let log_for_exit = log.clone();
     ctrlc_handler(move || {
@@ -283,7 +295,7 @@ fn run(args: Args, app: Option<AppPaths>) -> Result<()> {
         menubar::run(
             menubar::MenuModel {
                 host_name: host_name.clone(),
-                address: if sw.port == 47100 { lan.clone() } else { format!("{lan}:{}", sw.port) },
+                address: address.clone(),
                 port: sw.port,
                 logs_dir: a.logs.clone(),
                 devices: Box::new(move || shared_for_menu.devices()),

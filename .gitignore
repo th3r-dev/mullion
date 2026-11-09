@@ -8,3 +8,4 @@ target/
 # macOS package output (tools/package-macos.sh)
 /dist/macos/
 /dist/*.pkg
+.DS_Store

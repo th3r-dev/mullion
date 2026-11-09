@@ -44,7 +44,8 @@ const PRIVACY_SCREEN: &str = "x-apple.systempreferences:com.apple.preference.sec
 /// What the menu shows and does; filled in by `main`.
 pub struct MenuModel {
     pub host_name: String,
-    /// What a tablet types: the LAN address, with the port when it is not 47100.
+    /// What a tablet opens in a browser: the bare LAN address when the web
+    /// port (80) is served, otherwise address:port.
     pub address: String,
     pub port: u16,
     pub logs_dir: PathBuf,
@@ -142,7 +143,7 @@ impl Controller {
         let mtm = self.mtm();
         menu.removeAllItems();
         self.label(menu, &format!("Mullion on {}", m.host_name), 0);
-        self.label(menu, &format!("Tablets connect to {}", m.address), 0);
+        self.label(menu, &format!("Open {} on a tablet", m.address), 0);
         self.action(menu, "Copy Address", sel!(copyAddress:), "c");
         menu.addItem(&NSMenuItem::separatorItem(mtm));
 
@@ -239,8 +240,8 @@ pub fn run(model: MenuModel, first_launch: bool) -> ! {
     if first_launch {
         let m = &controller.ivars().model;
         let detail = format!(
-            "Mullion runs in the menu bar, next to the clock.\n\nOn a tablet on this Wi-Fi, open http://{}/receiver and tap {} under Nearby.{}",
-            if m.port == 47100 { format!("{}:47100", m.address) } else { m.address.clone() },
+            "Mullion runs in the menu bar, next to the clock.\n\nOn a tablet on this Wi-Fi, open {} in the browser and tap {} under Nearby.{}",
+            m.address,
             m.host_name,
             if can_record { "" } else { "\n\nMullion needs Screen Recording to show this Mac on your tablet. Allow it in System Settings, then open Mullion again." }
         );
