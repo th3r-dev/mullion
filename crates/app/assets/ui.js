@@ -40,6 +40,7 @@
   const ipEl = $('ip'), nameEl = $('name'), goBtn = $('go'), hint = $('hint');
   const segMirror = $('segMirror'), segExtend = $('segExtend'), thumb = $('thumb');
   const nameOut = $('nameOut'), modeBtn = $('modeBtn'), fsBtn = $('fsBtn'), dcBtn = $('dcBtn');
+  const screensBtn = $('screensBtn'), screensSetupBtn = $('screensSetupBtn');
   const modeIcon = $('modeIcon'), modeLabel = $('modeLabel'), fsIcon = $('fsIcon'), fsLabel = $('fsLabel');
   // Buttons hold an icon plus a label span; change the parts, never textContent.
   const setIcon = (use, name) => use.setAttribute('href', '#i-' + name);
@@ -131,6 +132,19 @@
     fsBtn.title = fsLabel.textContent;
     setIcon(fsIcon, on ? 'exit-fullscreen' : 'fullscreen');
   }
+  // Layout map (layout.js): from the toolbar while streaming, or from the
+  // setup card with the IP typed in.
+  screensBtn.addEventListener('click', () => {
+    const ip = mullion.stats().hostIp || ipEl.value.trim();
+    if (ip) window.mullionLayout.open(ip);
+  });
+  screensSetupBtn.addEventListener('click', () => {
+    const ip = ipEl.value.trim();
+    if (!ip) { hint.textContent = 'Enter the IP shown by Mullion on the Mac.'; hint.classList.add('err'); ipEl.focus(); return; }
+    hint.classList.remove('err'); hint.textContent = '';
+    localStorage.setItem('mullion.host', ip);
+    window.mullionLayout.open(ip);
+  });
   document.addEventListener('fullscreenchange', syncFullscreen);
   document.addEventListener('webkitfullscreenchange', syncFullscreen);
 
@@ -185,4 +199,7 @@
   const q = new URLSearchParams(location.search);
   if (q.get('host')) ipEl.value = q.get('host');
   if (q.get('auto') === '1' && ipEl.value) connect();
+
+  // Shared with layout.js so every surface moves on the same spring.
+  window.mullionUI = { spring, toast };
 })();

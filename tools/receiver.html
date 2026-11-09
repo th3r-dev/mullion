@@ -8,7 +8,9 @@
   fetch('../crates/app/assets/ui.html').then(r => r.text()).then(html => {
     document.body.innerHTML = html;
     const s1 = document.createElement('script'); s1.src = '../crates/app/assets/receiver.js';
-    s1.onload = () => { const s2 = document.createElement('script'); s2.src = '../crates/app/assets/ui.js'; document.body.appendChild(s2); };
+    s1.onload = () => { const s2 = document.createElement('script'); s2.src = '../crates/app/assets/ui.js';
+      s2.onload = () => { const s3 = document.createElement('script'); s3.src = '../crates/app/assets/layout.js'; document.body.appendChild(s3); };
+      document.body.appendChild(s2); };
     document.body.appendChild(s1);
   });
 </script>

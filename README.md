@@ -62,6 +62,22 @@ cp .env.example .env              # then edit: MULLION_EXTEND=false, MULLION_DIS
 Open `http://<mac-ip>:47100/receiver` on a tablet. `/devices` lists who is
 connected and which screen they own; `/config` shows the live switches.
 
+## Arranging screens
+
+**Screens** (toolbar while streaming, or **Arrange screens** on the setup card)
+opens the layout map: every display of the Mac on a grid, the Mac's main display
+fixed in the middle. Drag a screen to any outlined spot that touches another
+screen edge-on; drop it on another screen to swap the two. Arrow keys move a
+focused screen one cell. The Mac rearranges its displays to match right away,
+and a device that reconnects goes back where it was put (until the host exits).
+
+![Layout map](docs/ui/layout-map.png)
+
+`GET /screens` returns the grid; `POST /screens/layout` with
+`{"cells":[{"display_id":7,"col":-1,"row":0}]}` moves screens (409 with the
+reason if the layout cannot be placed). The geometry lives in
+[`crates/proto/src/layout.rs`](crates/proto/src/layout.rs).
+
 ## Targets
 
 1080p at 60 fps per tablet, under 50 ms latency on 5 GHz Wi-Fi. For three tablets at
