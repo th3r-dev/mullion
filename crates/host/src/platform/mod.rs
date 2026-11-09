@@ -56,7 +56,7 @@ pub struct PipelineConfig {
 
 impl Default for PipelineConfig {
     fn default() -> Self {
-        Self { width: 1920, height: 1080, fps: 60, bitrate_kbps: 10_000, require_hardware: true, idle_fps: 2, probe_overlay: true }
+        Self { width: 1920, height: 1080, fps: 60, bitrate_kbps: 10_000, require_hardware: true, idle_fps: 2, probe_overlay: false }
     }
 }
 

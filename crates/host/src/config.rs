@@ -16,7 +16,8 @@ pub struct Switches {
     pub display_grace_secs: u64,
     /// MULLION_ARRANGE: auto-arrange displays after create/remove.
     pub arrange: bool,
-    /// MULLION_PROBE: burn the latency strip into frames.
+    /// MULLION_PROBE: burn the latency strip into frames. Off by default: it is a
+    /// measurement aid (TEST_PLAN NFR-1) and covers the top of the picture.
     pub probe: bool,
     /// MULLION_REQUIRE_HW_ENCODER: FR-8, refuse a software encoder.
     pub require_hw_encoder: bool,
@@ -38,7 +39,7 @@ impl Default for Switches {
             extend: true,
             display_grace_secs: 30,
             arrange: true,
-            probe: true,
+            probe: false,
             require_hw_encoder: true,
             multi_session: true,
             debug: false,
@@ -140,7 +141,7 @@ mod tests {
         let s = Switches::from_lookup(|k| env.get(k).map(|v| v.to_string()));
         assert!(!s.extend);
         assert_eq!(s.display_grace_secs, 0);
-        assert!(s.probe, "garbage keeps the default");
+        assert!(!s.probe, "garbage keeps the default");
         assert_eq!(s.port, 5000);
         assert_eq!(s.fps, 60);
         assert!(s.arrange && s.multi_session && s.require_hw_encoder && !s.debug);

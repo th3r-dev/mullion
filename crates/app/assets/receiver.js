@@ -9,6 +9,9 @@
     offset: null, rtt: null, samples: [],
     g2g: [], presented: 0, decoded: 0, decodeFail: 0, dropped: 0, lastFrameTs: 0,
     caps: null, status: 'idle', hostName: null, error: null,
+    // Strip sampling: a GPU->CPU readback per row, expensive on tablets.
+    // probe = host says frames carry the strip (null = old host, unknown).
+    probe: null, stripMisses: 0, nextSampleAt: 0,
     listeners: [],
   };
 
@@ -132,9 +135,13 @@
       if (state.lastFrameTs) { const gap = meta.presentedFrames - state.lastFrameTs - 1; if (gap > 0) state.dropped += gap; }
       state.lastFrameTs = meta.presentedFrames;
     }
+    // No strip on the frames: skip the readback entirely. Unknown (old host):
+    // after 30 misses in a row, look only once a second.
+    if (state.probe === false || (state.stripMisses >= 30 && now < state.nextSampleAt)) { v.requestVideoFrameCallback(onFrame); return; }
     const low = readStrip(v);
-    if (low === null) { state.decodeFail++; }
-    else if (state.offset !== null) {
+    if (low === null) { state.decodeFail++; if (++state.stripMisses >= 30) state.nextSampleAt = now + 1000; }
+    else state.stripMisses = 0;
+    if (low !== null && state.offset !== null) {
       state.decoded++;
       const presentedMs = performance.timeOrigin + (meta && meta.expectedDisplayTime ? meta.expectedDisplayTime : now);
       const painted = unwrapMs(low, presentedMs + state.offset);
@@ -173,8 +180,9 @@
       if (state.samples.length > 60) state.samples.shift();
       let best = state.samples[0];
       for (const x of state.samples) if (x.rtt < best.rtt) best = x;
+      // Stats only; the HUD polls them. Re-announcing the status here made the
+      // UI replay its "streaming" entrance (toolbar + toast) on every pong.
       state.offset = best.offset; state.rtt = best.rtt;
-      setStatus(state.status);
     }
   }
 
@@ -200,6 +208,7 @@
     disconnect();
     state.hostIp = hostIp; state.video = videoEl; state.error = null; state.mode = mode;
     state.g2g = []; state.samples = []; state.offset = null; state.presented = 0; state.decoded = 0; state.decodeFail = 0; state.dropped = 0; state.lastFrameTs = 0;
+    state.probe = null; state.stripMisses = 0; state.nextSampleAt = 0;
     setStatus('connecting');
     const pc = new RTCPeerConnection({ iceServers: [] });
     state.pc = pc;
@@ -246,6 +255,7 @@
       return;
     }
     state.hostName = answer.host_name || hostIp;
+    state.probe = typeof answer.probe === 'boolean' ? answer.probe : null;
     await pc.setRemoteDescription({ type: 'answer', sdp: answer.sdp });
     if (state.status !== 'streaming') setStatus('connected');
   }
