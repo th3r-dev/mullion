@@ -46,6 +46,7 @@ pub struct Signaling {
     server: Server,
     handler: Arc<dyn OfferHandler>,
     host_name: String,
+    config: serde_json::Value,
 }
 
 impl Signaling {
@@ -55,7 +56,13 @@ impl Signaling {
         let server = Server::http(addr).map_err(|e| {
             anyhow!("Can't listen on port {}: {}. Pick another with --port.", addr.port(), e)
         })?;
-        Ok(Self { server, handler, host_name })
+        Ok(Self { server, handler, host_name, config: serde_json::Value::Null })
+    }
+
+    /// Effective switches, served at `/config`.
+    pub fn with_config(mut self, config: serde_json::Value) -> Self {
+        self.config = config;
+        self
     }
 
     pub fn local_addr(&self) -> SocketAddr {
@@ -142,6 +149,11 @@ impl Signaling {
                 let resp = Response::from_string(receiver_html(&host_ip))
                     .with_header(Header::from_bytes("Content-Type", "text/html; charset=utf-8").unwrap())
                     .with_header(Header::from_bytes("Cache-Control", "no-store").unwrap());
+                req.respond(with_cors(resp)).context("respond")
+            }
+            ("/config", Method::Get) => {
+                let body = serde_json::to_vec_pretty(&self.config)?;
+                let resp = Response::from_data(body).with_header(Header::from_bytes("Content-Type", "application/json").unwrap());
                 req.respond(with_cors(resp)).context("respond")
             }
             ("/devices", Method::Get) => {

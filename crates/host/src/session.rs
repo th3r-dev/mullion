@@ -116,6 +116,10 @@ pub struct SessionConfig {
     pub pipeline: PipelineConfig,
     /// Allow Extend mode (creates a virtual display on first use).
     pub extend: bool,
+    /// How long an orphaned virtual display lingers (MULLION_DISPLAY_GRACE_SECS).
+    pub display_grace: Duration,
+    /// Several receivers at once; false = the newest offer replaces the rest.
+    pub multi_session: bool,
 }
 
 /// Start the UDP socket, the reader thread and the session thread.
@@ -179,6 +183,8 @@ pub fn start(
             displays: HashMap::new(),
             next_serial: 1,
             extend_allowed: cfg.extend,
+            display_grace: cfg.display_grace,
+            multi_session: cfg.multi_session,
             devices,
             idr: IdrLimiter::default_policy(),
             next_id: 0,
@@ -210,9 +216,9 @@ struct OwnedDisplay {
     orphaned_at: Option<Instant>,
 }
 
-/// How long a device's virtual display survives after its last session ends.
-/// Long enough for a Wi-Fi hiccup or a mode switch, short enough that a
-/// tablet that walked away does not leave a ghost monitor.
+/// Default for how long a device's virtual display survives after its last
+/// session ends: long enough for a Wi-Fi hiccup or a mode switch, short enough
+/// that a tablet that walked away does not leave a ghost monitor.
 pub const DISPLAY_GRACE: Duration = Duration::from_secs(30);
 
 struct SessionLoop {
@@ -234,6 +240,8 @@ struct SessionLoop {
     displays: HashMap<String, OwnedDisplay>,
     next_serial: u32,
     extend_allowed: bool,
+    display_grace: Duration,
+    multi_session: bool,
     devices: Arc<Mutex<DevicesSnapshot>>,
     idr: IdrLimiter,
     next_id: u64,
@@ -254,6 +262,9 @@ impl SessionLoop {
                 Some(Msg::Shutdown) => break,
                 Some(Msg::NewRtc(rtc, mode, device)) => {
                     self.next_id += 1;
+                    if !self.multi_session {
+                        self.end_all("replaced by a new offer (single-session mode)");
+                    }
                     // A device that reconnects (same id) replaces its old session.
                     if let Some(id) = device.id.as_deref() {
                         if let Some(old) = self.sessions.iter().position(|a| a.device.id.as_deref() == Some(id)) {
@@ -522,7 +533,7 @@ impl SessionLoop {
                     Source::Virtual(id) => id,
                     _ => return None,
                 };
-                Some(OrphanedScreen { screen_name: d.name.clone(), display_id: id, removes_in_secs: DISPLAY_GRACE.saturating_sub(now.duration_since(t)).as_secs() })
+                Some(OrphanedScreen { screen_name: d.name.clone(), display_id: id, removes_in_secs: self.display_grace.saturating_sub(now.duration_since(t)).as_secs() })
             })
             .collect();
         *self.devices.lock().unwrap() = DevicesSnapshot { devices: rows, pending_removal };
@@ -582,7 +593,7 @@ impl SessionLoop {
                     for d in self.displays.values_mut() {
                         if d.display.source() == Source::Virtual(id) && d.orphaned_at.is_none() {
                             d.orphaned_at = Some(Instant::now());
-                            info!("{} kept for {} s in case {} comes back", d.name, DISPLAY_GRACE.as_secs(), a.device.name);
+                            info!("{} kept for {} s in case {} comes back", d.name, self.display_grace.as_secs(), a.device.name);
                         }
                     }
                 }
@@ -596,7 +607,7 @@ impl SessionLoop {
         let gone: Vec<String> = self
             .displays
             .iter()
-            .filter(|(_, d)| d.orphaned_at.map(|t| now.duration_since(t) >= DISPLAY_GRACE).unwrap_or(false))
+            .filter(|(_, d)| d.orphaned_at.map(|t| now.duration_since(t) >= self.display_grace).unwrap_or(false))
             .map(|(k, _)| k.clone())
             .collect();
         for k in gone {

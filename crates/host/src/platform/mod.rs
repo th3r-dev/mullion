@@ -8,6 +8,15 @@ use anyhow::Result;
 #[cfg(target_os = "macos")]
 pub mod macos;
 
+/// MULLION_ARRANGE: whether the platform re-arranges displays after create/remove.
+pub static ARRANGE_ENABLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+pub fn set_arrange_enabled(on: bool) {
+    ARRANGE_ENABLED.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+pub fn arrange_enabled() -> bool {
+    ARRANGE_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Which display a pipeline captures.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Source {
