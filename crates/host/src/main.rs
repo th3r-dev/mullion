@@ -166,7 +166,8 @@ fn main() -> Result<()> {
 
     let addr = SocketAddr::new(args.bind, sw.port);
     let signaling = signaling::Signaling::bind(addr, Arc::new(session::SharedHandle(Mutex::new(handle))), host_name.clone())?
-        .with_config(serde_json::to_value(&sw)?);
+        .with_config(serde_json::to_value(&sw)?)
+        .with_lan_ips(ips.iter().filter(|ip| !ip.is_loopback()).map(|ip| ip.to_string()).collect());
     let lan = ips.first().map(|ip| ip.to_string()).unwrap_or_else(|| "127.0.0.1".into());
     info!("signaling on http://{lan}:{}/offer  receiver: http://{lan}:{}/receiver  config: /config", sw.port, sw.port);
     println!("Mullion host {host_name}: enter {lan} on the tablet.");
