@@ -372,6 +372,7 @@ impl SessionLoop {
             ProbeMessage::Presented { painted_host_ms, presented_ms, offset_ms } => {
                 let presented_host_ms = presented_ms + offset_ms;
                 self.log.record(Record::Presented {
+                    session: a.id,
                     painted_host_ms,
                     presented_host_ms,
                     glass_to_glass_ms: presented_host_ms - painted_host_ms,
@@ -379,7 +380,8 @@ impl SessionLoop {
             }
             ProbeMessage::Capabilities { jitter_buffer_target_supported, jitter_buffer_target_ms, user_agent } => {
                 info!("#{} receiver: jitterBufferTarget supported={jitter_buffer_target_supported} value={jitter_buffer_target_ms:?} ua={user_agent}", a.id);
-                self.log.record(Record::Capabilities { jitter_buffer_target_supported, jitter_buffer_target_ms, user_agent });
+                let peer = a.peer.map(|p| p.ip().to_string()).unwrap_or_default();
+                self.log.record(Record::Capabilities { session: a.id, peer, jitter_buffer_target_supported, jitter_buffer_target_ms, user_agent });
             }
             ProbeMessage::Pong { .. } => {}
         }

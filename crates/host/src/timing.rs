@@ -29,12 +29,13 @@ pub enum Record {
     },
     /// Receiver side: one presented frame (from the probe data channel).
     Presented {
+        session: u64,
         painted_host_ms: f64,
         presented_host_ms: f64,
         glass_to_glass_ms: f64,
     },
     /// Receiver capabilities (FR-5).
-    Capabilities { jitter_buffer_target_supported: bool, jitter_buffer_target_ms: Option<f64>, user_agent: String },
+    Capabilities { session: u64, peer: String, jitter_buffer_target_supported: bool, jitter_buffer_target_ms: Option<f64>, user_agent: String },
     /// A keyframe request from the receiver and whether it was granted (FR-6).
     Pli { at_ms: f64, granted: bool },
     /// Session lifecycle.
@@ -197,7 +198,7 @@ mod tests {
             log.record(Record::Frame { seq: i, capture_ms: t, encode_done_ms: t + 4.0, send_ms: t + 4.5, bytes: 20_000, idr: i == 0 });
         }
         for g in [20.0, 25.0, 30.0, 80.0] {
-            log.record(Record::Presented { painted_host_ms: 0.0, presented_host_ms: g, glass_to_glass_ms: g });
+            log.record(Record::Presented { session: 1, painted_host_ms: 0.0, presented_host_ms: g, glass_to_glass_ms: g });
         }
         log.record(Record::Pli { at_ms: 0.0, granted: true });
         log.record(Record::Pli { at_ms: 1.0, granted: false });
