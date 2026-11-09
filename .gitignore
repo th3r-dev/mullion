@@ -1,4 +1,5 @@
 target/
 *.log
-/dist/
+/logs/*.jsonl
+/logs/*.out
 /crates/app/dist/
