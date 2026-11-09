@@ -40,10 +40,16 @@ fn App() -> Element {
     let mut stats = use_signal(Stats::default);
     let mut full = use_signal(|| false);
     let mut mode = use_signal(|| "mirror".to_string());
+    let mut name = use_signal(String::new);
 
     // Load receiver.js once and poll its stats 4x a second.
     use_future(move || async move {
         let _ = eval(RECEIVER_JS).await;
+        if let Ok(v) = eval("return mullion.deviceName()").await {
+            if let Some(n) = v.as_str() {
+                name.set(n.to_string());
+            }
+        }
         loop {
             if let Ok(v) = eval("return JSON.stringify(window.mullion ? mullion.stats() : {})").await {
                 if let Some(s) = v.as_str() {
@@ -62,9 +68,10 @@ fn App() -> Element {
             return;
         }
         let js = format!(
-            "mullion.connect({}, document.getElementById('v'), {{mode: {}}});",
-            serde_json::to_string(&ip).unwrap(),
-            serde_json::to_string(&*mode.read()).unwrap()
+            "mullion.setDeviceName({n}); mullion.connect({ip}, document.getElementById('v'), {{mode: {m}, name: {n}}});",
+            ip = serde_json::to_string(&ip).unwrap(),
+            m = serde_json::to_string(&*mode.read()).unwrap(),
+            n = serde_json::to_string(&*name.read()).unwrap()
         );
         let _ = eval(&js);
     };
@@ -104,6 +111,12 @@ fn App() -> Element {
                     value: "{host}",
                     oninput: move |e| host.set(e.value()),
                     inputmode: "decimal",
+                }
+                input {
+                    placeholder: "This device's name",
+                    value: "{name}",
+                    oninput: move |e| name.set(e.value()),
+                    style: "width:150px",
                 }
                 select {
                     value: "{mode}",

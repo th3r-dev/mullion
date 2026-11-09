@@ -12,6 +12,37 @@
     listeners: [],
   };
 
+  // --- device identity: stable id + editable name, kept in localStorage ---
+  function deviceId() {
+    let id = null;
+    try { id = localStorage.getItem('mullion.deviceId'); } catch (e) { /* */ }
+    if (!id) {
+      id = (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now().toString(36));
+      try { localStorage.setItem('mullion.deviceId', id); } catch (e) { /* */ }
+    }
+    return id;
+  }
+  function guessName() {
+    const ua = navigator.userAgent;
+    const m = ua.match(/\(([^)]+)\)/); const inner = m ? m[1] : '';
+    // Android gives "Linux; Android 14; SM-X710" -> SM-X710; desktop gets the OS.
+    const parts = inner.split(';').map(x => x.trim());
+    const model = parts.find(x => /^[A-Z]{1,4}[- ]?[A-Z0-9]{2,}/.test(x) && !/^Android|^Linux|^Win|^Mac|^X11|^Intel/.test(x));
+    if (model) return model.replace(/ Build.*/, '');
+    if (/Macintosh/.test(ua)) return 'Mac';
+    if (/Windows/.test(ua)) return 'Windows PC';
+    if (/Android/.test(ua)) return 'Android tablet';
+    return 'Tablet';
+  }
+  function deviceName() {
+    let n = null;
+    try { n = localStorage.getItem('mullion.deviceName'); } catch (e) { /* */ }
+    return n || guessName();
+  }
+  function setDeviceName(n) {
+    try { localStorage.setItem('mullion.deviceName', String(n).slice(0, 32)); } catch (e) { /* */ }
+  }
+
   function setStatus(s, extra) {
     state.status = s;
     if (extra && extra.error) state.error = extra.error;
@@ -204,7 +235,7 @@
       const to = setTimeout(() => ctrl.abort(), 5000);
       const resp = await fetch(`http://${hostIp}:${port}/offer`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'offer', sdp: pc.localDescription.sdp, mode }), signal: ctrl.signal,
+        body: JSON.stringify({ type: 'offer', sdp: pc.localDescription.sdp, mode, device_id: deviceId(), device_name: opts.name || deviceName() }), signal: ctrl.signal,
       });
       clearTimeout(to);
       if (!resp.ok) throw new Error(`${resp.status} ${await resp.text()}`);
@@ -227,5 +258,5 @@
     if (state.status !== 'error') setStatus('idle');
   }
 
-  window.mullion = { connect, disconnect, stats: snapshot, onStatus: (fn) => state.listeners.push(fn), decodeStrip, unwrapMs };
+  window.mullion = { connect, disconnect, stats: snapshot, onStatus: (fn) => state.listeners.push(fn), decodeStrip, unwrapMs, deviceId, deviceName, setDeviceName };
 })();

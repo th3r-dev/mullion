@@ -33,7 +33,7 @@ fn class(name: &str) -> Result<&'static AnyClass> {
 }
 
 impl VirtualDisplay {
-    pub fn create(width: u32, height: u32, hz: u32, name: &str) -> Result<Self> {
+    pub fn create(width: u32, height: u32, hz: u32, name: &str, serial: u32) -> Result<Self> {
         let desc_cls = class("CGVirtualDisplayDescriptor")?;
         let settings_cls = class("CGVirtualDisplaySettings")?;
         let mode_cls = class("CGVirtualDisplayMode")?;
@@ -49,7 +49,7 @@ impl VirtualDisplay {
             let _: () = msg_send![&*desc, setSizeInMillimeters: CGSize::new(width as f64 * 0.2645, height as f64 * 0.2645)];
             let _: () = msg_send![&*desc, setVendorID: 0x4D4Cusize]; // "ML"
             let _: () = msg_send![&*desc, setProductID: 0x0001usize];
-            let _: () = msg_send![&*desc, setSerialNum: 1usize];
+            let _: () = msg_send![&*desc, setSerialNum: serial as usize];
             let _: () = msg_send![&*desc, setRedPrimary: CGPoint::new(0.64, 0.33)];
             let _: () = msg_send![&*desc, setGreenPrimary: CGPoint::new(0.30, 0.60)];
             let _: () = msg_send![&*desc, setBluePrimary: CGPoint::new(0.15, 0.06)];
@@ -77,7 +77,7 @@ impl VirtualDisplay {
             if display_id == 0 {
                 bail!("CGVirtualDisplay has no display id");
             }
-            info!("virtual display '{name}' id={display_id} {width}x{height}@{hz}");
+            info!("virtual display '{name}' serial={serial} id={display_id} {width}x{height}@{hz}");
             Ok(Self { display, display_id, width, height })
         }
     }

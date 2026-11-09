@@ -64,7 +64,7 @@ pub fn receiver_html(host_ip: &str) -> String {
   #hud{{position:fixed;right:12px;bottom:12px;background:rgba(17,20,24,.86);padding:6px 10px;border-radius:6px;font-size:12px;font-variant-numeric:tabular-nums;white-space:pre}}
   .fs #bar{{display:none}} .fs video{{height:100vh}}
 </style>
-<div id="bar"><input id="ip" value="{host_ip}">
+<div id="bar"><input id="ip" value="{host_ip}"><input id="name" placeholder="This device's name" style="width:140px">
 <select id="mode"><option value="mirror">Mirror</option><option value="extend">Extend</option></select>
 <button id="go">Connect</button><button id="full">Full screen</button><span id="st">idle</span></div>
 <video id="v" muted autoplay playsinline></video>
@@ -73,7 +73,8 @@ pub fn receiver_html(host_ip: &str) -> String {
 <script>
   const ip=document.getElementById('ip'), st=document.getElementById('st'), hud=document.getElementById('hud');
   const modeEl=document.getElementById('mode'); modeEl.value=localStorage.getItem('mullion.mode')||'mirror';
-  document.getElementById('go').onclick=()=>{{localStorage.setItem('mullion.mode',modeEl.value);mullion.connect(ip.value,document.getElementById('v'),{{mode:modeEl.value}});}};
+  const nameEl=document.getElementById('name'); nameEl.value=mullion.deviceName();
+  document.getElementById('go').onclick=()=>{{localStorage.setItem('mullion.mode',modeEl.value);mullion.setDeviceName(nameEl.value);mullion.connect(ip.value,document.getElementById('v'),{{mode:modeEl.value,name:nameEl.value}});}};
   modeEl.onchange=()=>{{ if(mullion.stats().status!=='idle') document.getElementById('go').click(); }};
   document.getElementById('full').onclick=()=>{{document.body.classList.add('fs');document.documentElement.requestFullscreen&&document.documentElement.requestFullscreen()}};
   mullion.onStatus(s=>{{st.textContent=s.status+(s.error?' — '+s.error:'')+(s.hostName?' · '+s.hostName:'');}});

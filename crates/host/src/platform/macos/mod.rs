@@ -33,8 +33,8 @@ impl Platform for MacOs {
         "macOS (ScreenCaptureKit + VideoToolbox)"
     }
 
-    fn create_virtual_display(&self, w: u32, h: u32, hz: u32) -> Result<Option<Box<dyn VirtualDisplay>>> {
-        let vd = virtual_display::VirtualDisplay::create(w, h, hz, "Mullion")?;
+    fn create_virtual_display(&self, w: u32, h: u32, hz: u32, name: &str, serial: u32) -> Result<Option<Box<dyn VirtualDisplay>>> {
+        let vd = virtual_display::VirtualDisplay::create(w, h, hz, name, serial)?;
         Ok(Some(Box::new(vd)))
     }
 

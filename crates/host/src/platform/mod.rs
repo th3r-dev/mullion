@@ -65,7 +65,9 @@ pub trait Platform: Send + Sync {
     fn start_pipeline(&self, source: Source, cfg: &PipelineConfig, tx: Sender<EncodedFrame>) -> Result<Box<dyn Pipeline>>;
     /// Create the virtual display for Extend mode (step 2). `None` when the OS
     /// has no way to do it yet.
-    fn create_virtual_display(&self, w: u32, h: u32, hz: u32) -> Result<Option<Box<dyn VirtualDisplay>>>;
+    /// `name` shows in the OS display settings; `serial` must differ per device
+    /// so the OS keeps a separate arrangement for each.
+    fn create_virtual_display(&self, w: u32, h: u32, hz: u32, name: &str, serial: u32) -> Result<Option<Box<dyn VirtualDisplay>>>;
 }
 
 /// A virtual monitor; dropping it removes the display.

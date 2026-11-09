@@ -14,6 +14,7 @@ use std::time::{Duration, Instant};
 use anyhow::{anyhow, Result};
 use mullion_proto::keyframe::IdrLimiter;
 use mullion_proto::signal::{Mode, ProbeMessage};
+use serde::Serialize;
 use str0m::change::SdpOffer;
 use str0m::channel::ChannelId;
 use str0m::format::Codec;
@@ -25,8 +26,31 @@ use tracing::{debug, info, warn};
 use crate::platform::{EncodedFrame, Pipeline, PipelineConfig, Platform, Source, VirtualDisplay};
 use crate::timing::{now_ms, Record, TimingLog};
 
+/// Who is connecting, from the offer.
+#[derive(Debug, Clone)]
+pub struct DeviceInfo {
+    /// `None` when the receiver sent no usable id: anonymous, gets a fresh display.
+    pub id: Option<String>,
+    pub name: String,
+}
+
+/// One row of `/devices`.
+#[derive(Debug, Clone, Serialize)]
+pub struct DeviceStatus {
+    pub session: u64,
+    pub device_id: Option<String>,
+    pub name: String,
+    pub mode: Mode,
+    pub connected: bool,
+    pub peer: Option<String>,
+    /// OS display id of the screen this device shows (virtual for Extend, main for Mirror).
+    pub display_id: Option<u32>,
+    pub screen_name: String,
+    pub frames_sent: u64,
+}
+
 pub enum Msg {
-    NewRtc(Rtc, Mode),
+    NewRtc(Rtc, Mode, DeviceInfo),
     Packet { at: Instant, source: SocketAddr, destination: SocketAddr, data: Vec<u8> },
     Frame(Source, EncodedFrame),
     Shutdown,
@@ -37,10 +61,16 @@ pub enum Msg {
 pub struct SessionHandle {
     tx: Sender<Msg>,
     local_addrs: Vec<SocketAddr>,
+    devices: Arc<Mutex<Vec<DeviceStatus>>>,
 }
 
 impl SessionHandle {
-    pub fn answer(&self, offer_sdp: &str, mode: Mode) -> Result<String> {
+    /// Snapshot of connected devices for `/devices`.
+    pub fn devices(&self) -> Vec<DeviceStatus> {
+        self.devices.lock().unwrap().clone()
+    }
+
+    pub fn answer(&self, offer_sdp: &str, mode: Mode, device: DeviceInfo) -> Result<String> {
         let offer = SdpOffer::from_sdp_string(offer_sdp).map_err(|e| anyhow!("bad SDP: {e}"))?;
         let mut rtc = Rtc::builder()
             .set_ice_lite(true)
@@ -56,7 +86,7 @@ impl SessionHandle {
             }
         }
         let answer = rtc.sdp_api().accept_offer(offer).map_err(|e| anyhow!("accept offer: {e}"))?;
-        self.tx.send(Msg::NewRtc(rtc, mode)).map_err(|_| anyhow!("session thread gone"))?;
+        self.tx.send(Msg::NewRtc(rtc, mode, device)).map_err(|_| anyhow!("session thread gone"))?;
         Ok(answer.to_sdp_string())
     }
 
@@ -120,7 +150,8 @@ pub fn start(
     info!("WebRTC media on UDP {}", local_addrs.iter().map(|a| a.to_string()).collect::<Vec<_>>().join(", "));
 
     let frame_tx = tx.clone();
-    let handle = SessionHandle { tx, local_addrs };
+    let devices: Arc<Mutex<Vec<DeviceStatus>>> = Arc::new(Mutex::new(Vec::new()));
+    let handle = SessionHandle { tx, local_addrs, devices: devices.clone() };
     let join = std::thread::Builder::new().name("mullion-session".into()).spawn(move || {
         let mut loop_state = SessionLoop {
             sockets,
@@ -131,8 +162,10 @@ pub fn start(
             log,
             sessions: Vec::new(),
             pipelines: HashMap::new(),
-            virtual_display: None,
+            displays: HashMap::new(),
+            next_serial: 1,
             extend_allowed: cfg.extend,
+            devices,
             idr: IdrLimiter::default_policy(),
             next_id: 0,
         };
@@ -144,6 +177,7 @@ pub fn start(
 struct Active {
     id: u64,
     mode: Mode,
+    device: DeviceInfo,
     source: Option<Source>,
     rtc: Rtc,
     /// Remote address once ICE picks a pair; used to route incoming packets.
@@ -152,6 +186,11 @@ struct Active {
     probe_channel: Option<ChannelId>,
     connected: bool,
     frames_sent: u64,
+}
+
+struct OwnedDisplay {
+    display: Box<dyn VirtualDisplay>,
+    name: String,
 }
 
 struct SessionLoop {
@@ -167,8 +206,13 @@ struct SessionLoop {
     /// One pipeline per captured source; Mirror sessions share Main, Extend
     /// sessions share the virtual display.
     pipelines: HashMap<Source, Box<dyn Pipeline>>,
-    virtual_display: Option<Box<dyn VirtualDisplay>>,
+    /// One virtual display per device (PLAN step 4), keyed by device id, or by
+    /// session id for anonymous devices. Kept until the host exits so a
+    /// reconnecting device gets its screen and window layout back.
+    displays: HashMap<String, OwnedDisplay>,
+    next_serial: u32,
     extend_allowed: bool,
+    devices: Arc<Mutex<Vec<DeviceStatus>>>,
     idr: IdrLimiter,
     next_id: u64,
 }
@@ -186,12 +230,19 @@ impl SessionLoop {
             let mut touched: Vec<usize> = Vec::new();
             match msg {
                 Some(Msg::Shutdown) => break,
-                Some(Msg::NewRtc(rtc, mode)) => {
+                Some(Msg::NewRtc(rtc, mode, device)) => {
                     self.next_id += 1;
-                    self.log.record(Record::Event { at_ms: now_ms(), what: format!("offer accepted #{} ({mode:?})", self.next_id) });
+                    // A device that reconnects (same id) replaces its old session.
+                    if let Some(id) = device.id.as_deref() {
+                        if let Some(old) = self.sessions.iter().position(|a| a.device.id.as_deref() == Some(id)) {
+                            self.end_session(old, "replaced by the same device");
+                        }
+                    }
+                    self.log.record(Record::Event { at_ms: now_ms(), what: format!("offer accepted #{} {} ({mode:?})", self.next_id, device.name) });
                     self.sessions.push(Active {
                         id: self.next_id,
                         mode,
+                        device,
                         source: None,
                         rtc,
                         peer: None,
@@ -246,6 +297,7 @@ impl SessionLoop {
             // Drain after every mutation (str0m's single-mutation invariant).
             // Draining every session is cheap and keeps the invariant simple.
             next_timeout = self.drain_all();
+            self.publish_devices();
         }
         self.end_all("shutdown");
     }
@@ -321,7 +373,7 @@ impl SessionLoop {
                             self.sessions[i].connected = true;
                             self.log.record(Record::Event { at_ms: now_ms(), what: format!("connected #{}", self.sessions[i].id) });
                             let mode = self.sessions[i].mode;
-                            match self.ensure_pipeline(mode) {
+                            match self.ensure_pipeline(i, mode) {
                                 Ok(src) => {
                                     self.sessions[i].source = Some(src);
                                     // A joining receiver needs an IDR to start decoding.
@@ -359,22 +411,28 @@ impl SessionLoop {
 
     /// The capture source for `mode`, starting its pipeline (and the virtual
     /// display) if needed.
-    fn ensure_pipeline(&mut self, mode: Mode) -> Result<Source> {
+    fn ensure_pipeline(&mut self, i: usize, mode: Mode) -> Result<Source> {
         let source = match mode {
             Mode::Mirror => Source::Main,
             Mode::Extend => {
                 if !self.extend_allowed {
                     anyhow::bail!("Extend mode is off on this host (--no-extend)");
                 }
-                if self.virtual_display.is_none() {
+                let key = self.sessions[i].device.id.clone().unwrap_or_else(|| format!("session-{}", self.sessions[i].id));
+                if !self.displays.contains_key(&key) {
                     let c = &self.pipeline_cfg;
-                    match self.platform.create_virtual_display(c.width, c.height, c.fps)? {
-                        Some(vd) => self.virtual_display = Some(vd),
+                    let name = format!("Mullion {}", self.sessions[i].device.name);
+                    let serial = self.next_serial;
+                    self.next_serial += 1;
+                    match self.platform.create_virtual_display(c.width, c.height, c.fps, &name, serial)? {
+                        Some(vd) => {
+                            self.displays.insert(key.clone(), OwnedDisplay { display: vd, name: name.clone() });
+                        }
                         None => anyhow::bail!("This OS cannot create a virtual display yet"),
                     }
-                    self.log.record(Record::Event { at_ms: now_ms(), what: "virtual display created".into() });
+                    self.log.record(Record::Event { at_ms: now_ms(), what: format!("virtual display created: {name}") });
                 }
-                self.virtual_display.as_ref().unwrap().source()
+                self.displays[&key].display.source()
             }
         };
         if self.pipelines.contains_key(&source) {
@@ -392,6 +450,36 @@ impl SessionLoop {
         let p = self.platform.start_pipeline(source, &self.pipeline_cfg, ptx)?;
         self.pipelines.insert(source, p);
         Ok(source)
+    }
+
+    /// Refresh the `/devices` snapshot.
+    fn publish_devices(&self) {
+        let rows: Vec<DeviceStatus> = self
+            .sessions
+            .iter()
+            .map(|a| {
+                let (display_id, screen_name) = match a.source {
+                    Some(Source::Virtual(id)) => {
+                        let name = self.displays.values().find(|d| d.display.source() == Source::Virtual(id)).map(|d| d.name.clone()).unwrap_or_default();
+                        (Some(id), name)
+                    }
+                    Some(Source::Main) => (None, "Main display".to_string()),
+                    None => (None, String::new()),
+                };
+                DeviceStatus {
+                    session: a.id,
+                    device_id: a.device.id.clone(),
+                    name: a.device.name.clone(),
+                    mode: a.mode,
+                    connected: a.connected,
+                    peer: a.peer.map(|p| p.ip().to_string()),
+                    display_id,
+                    screen_name,
+                    frames_sent: a.frames_sent,
+                }
+            })
+            .collect();
+        *self.devices.lock().unwrap() = rows;
     }
 
     fn on_probe(&mut self, i: usize, data: &[u8]) {
@@ -433,7 +521,7 @@ impl SessionLoop {
         }
         let mut a = self.sessions.remove(i);
         a.rtc.disconnect();
-        info!("#{} session ended: {reason} ({} frames sent)", a.id, a.frames_sent);
+        info!("#{} {} session ended: {reason} ({} frames sent)", a.id, a.device.name, a.frames_sent);
         self.log.record(Record::Event { at_ms: now_ms(), what: format!("session #{} ended: {reason}", a.id) });
         self.log.flush();
         // FR-7: last receiver of a source gone -> stop that capture, free its encoder.
@@ -442,7 +530,7 @@ impl SessionLoop {
                 if let Some(mut p) = self.pipelines.remove(&src) {
                     p.stop();
                 }
-                // The virtual display stays until the host exits, so a
+                // The device's virtual display stays until the host exits, so a
                 // reconnecting Extend tablet keeps its window layout.
             }
         }
@@ -488,7 +576,11 @@ fn write_frame(a: &mut Active, frame: &EncodedFrame, log: &TimingLog, log_it: bo
 pub struct SharedHandle(pub Mutex<SessionHandle>);
 
 impl crate::signaling::OfferHandler for SharedHandle {
-    fn answer(&self, offer_sdp: &str, mode: Mode, _peer: SocketAddr) -> Result<String> {
-        self.0.lock().unwrap().answer(offer_sdp, mode)
+    fn answer(&self, offer_sdp: &str, mode: Mode, device: DeviceInfo, _peer: SocketAddr) -> Result<String> {
+        self.0.lock().unwrap().answer(offer_sdp, mode, device)
+    }
+
+    fn devices(&self) -> Vec<DeviceStatus> {
+        self.0.lock().unwrap().devices()
     }
 }
