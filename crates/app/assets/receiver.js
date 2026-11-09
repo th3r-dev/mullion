@@ -95,12 +95,12 @@
     const v = state.video;
     if (!v || !state.pc) return;
     state.presented++;
-    if (meta && meta.presentedFrames && state.lastFrameTs) {
-      // presentedFrames counts frames the UA presented; gaps are drops.
-      const gap = meta.presentedFrames - state.lastFrameTs - 1;
-      if (gap > 0) state.dropped += gap;
+    // presentedFrames counts frames the UA composited; callbacks we missed
+    // (gap > 1) are frames presented without our sampling, not decode drops.
+    if (meta && meta.presentedFrames) {
+      if (state.lastFrameTs) { const gap = meta.presentedFrames - state.lastFrameTs - 1; if (gap > 0) state.dropped += gap; }
+      state.lastFrameTs = meta.presentedFrames;
     }
-    if (meta && meta.presentedFrames) state.lastFrameTs = meta.presentedFrames;
     const low = readStrip(v);
     if (low === null) { state.decodeFail++; }
     else if (state.offset !== null) {
