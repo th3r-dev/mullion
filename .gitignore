@@ -1,0 +1,4 @@
+target/
+*.log
+/dist/
+/crates/app/dist/
