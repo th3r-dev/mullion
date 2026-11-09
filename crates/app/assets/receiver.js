@@ -108,6 +108,9 @@
       const presentedMs = performance.timeOrigin + (meta && meta.expectedDisplayTime ? meta.expectedDisplayTime : now);
       const painted = unwrapMs(low, presentedMs + state.offset);
       const g2g = (presentedMs + state.offset) - painted;
+      // A strip that passes parity by chance (no probe on screen) gives an
+      // absurd value; only plausible latencies count.
+      if (g2g < -200 || g2g > 5000) { state.decodeFail++; state.decoded--; v.requestVideoFrameCallback(onFrame); return; }
       state.g2g.push(g2g);
       if (state.g2g.length > 20000) state.g2g.splice(0, 10000);
       if (state.dc && state.dc.readyState === 'open' && (state.decoded % 2 === 0)) {
