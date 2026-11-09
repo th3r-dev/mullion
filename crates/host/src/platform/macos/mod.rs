@@ -44,10 +44,22 @@ impl Platform for MacOs {
         std::thread::sleep(Duration::from_millis(400));
         let mut ours = OUR_DISPLAYS.lock().unwrap();
         ours.push(vd.display_id);
-        if let Err(e) = arrange::arrange(&ours) {
+        if let Err(e) = arrange::arrange(&ours, arrange::Placement::LineUp) {
             warn!("arrange displays: {e:#}");
         }
         Ok(Some(Box::new(vd)))
+    }
+
+    fn virtual_display_removed(&self, source: Source) {
+        if let Source::Virtual(id) = source {
+            let mut ours = OUR_DISPLAYS.lock().unwrap();
+            ours.retain(|d| *d != id);
+            // Let the OS drop the display, then close the gap it left.
+            std::thread::sleep(Duration::from_millis(400));
+            if let Err(e) = arrange::arrange(&ours, arrange::Placement::Keep) {
+                warn!("arrange displays: {e:#}");
+            }
+        }
     }
 
     fn start_pipeline(&self, source: Source, cfg: &PipelineConfig, tx: Sender<EncodedFrame>) -> Result<Box<dyn Pipeline>> {

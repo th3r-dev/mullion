@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use anyhow::{anyhow, Context, Result};
 use mullion_proto::signal::{clean_device_name, parse_offer, valid_device_id, Mode, MAX_BODY_BYTES};
-use crate::session::{DeviceInfo, DeviceStatus};
+use crate::session::{DeviceInfo, DevicesSnapshot};
 use serde::Serialize;
 use tiny_http::{Header, Method, Request, Response, Server, StatusCode};
 use tracing::{info, warn};
@@ -21,8 +21,8 @@ use crate::probe_page::{receiver_html, PROBE_HTML};
 /// What the server hands a validated offer to. Returns the answer SDP.
 pub trait OfferHandler: Send + Sync + 'static {
     fn answer(&self, offer_sdp: &str, mode: Mode, device: DeviceInfo, peer: SocketAddr) -> Result<String>;
-    fn devices(&self) -> Vec<DeviceStatus> {
-        Vec::new()
+    fn devices(&self) -> DevicesSnapshot {
+        DevicesSnapshot::default()
     }
 }
 

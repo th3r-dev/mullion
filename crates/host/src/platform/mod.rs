@@ -68,6 +68,9 @@ pub trait Platform: Send + Sync {
     /// `name` shows in the OS display settings; `serial` must differ per device
     /// so the OS keeps a separate arrangement for each.
     fn create_virtual_display(&self, w: u32, h: u32, hz: u32, name: &str, serial: u32) -> Result<Option<Box<dyn VirtualDisplay>>>;
+    /// Called after a virtual display object is dropped, so the platform can
+    /// re-arrange what is left.
+    fn virtual_display_removed(&self, _source: Source) {}
 }
 
 /// A virtual monitor; dropping it removes the display.

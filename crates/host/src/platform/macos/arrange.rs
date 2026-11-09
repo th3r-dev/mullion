@@ -15,8 +15,19 @@ use objc2_core_graphics::{
 };
 use tracing::{info, warn};
 
-/// Which displays are ours, in creation order.
-pub fn arrange(virtual_ids: &[CGDirectDisplayID]) -> Result<()> {
+/// What to do with our displays' positions.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Placement {
+    /// Put the newest of ours to the right of everything else; displays the
+    /// user already arranged stay where they are (after creating one).
+    LineUp,
+    /// Keep ours where the user put them; only make sure the built-in stays
+    /// main and nothing mirrors (after removing one).
+    Keep,
+}
+
+/// `virtual_ids` are ours, in creation order.
+pub fn arrange(virtual_ids: &[CGDirectDisplayID], placement: Placement) -> Result<()> {
     let mut ids = [0u32; 32];
     let mut n = 0u32;
     let err = unsafe { CGGetOnlineDisplayList(32, ids.as_mut_ptr(), &mut n) };
@@ -50,11 +61,16 @@ pub fn arrange(virtual_ids: &[CGDirectDisplayID]) -> Result<()> {
             CGConfigureDisplayOrigin(cfg, *d, x, 0);
             x += CGDisplayBounds(*d).size.width as i32;
         }
-        // (3) our displays to the right, in order, only if still at a default spot.
-        for d in virtual_ids {
-            if online.contains(d) {
-                CGConfigureDisplayOrigin(cfg, *d, x, 0);
-                x += CGDisplayBounds(*d).size.width.max(1.0) as i32;
+        // (3) the newest of ours goes right of everything (LineUp); the rest untouched.
+        if placement == Placement::LineUp {
+            if let Some(newest) = virtual_ids.last() {
+                let right_edge = online
+                    .iter()
+                    .filter(|d| *d != newest)
+                    .map(|d| { let b = CGDisplayBounds(*d); (b.origin.x + b.size.width) as i32 })
+                    .max()
+                    .unwrap_or(x);
+                CGConfigureDisplayOrigin(cfg, *newest, right_edge.max(x), 0);
             }
         }
         let err = CGCompleteDisplayConfiguration(cfg, CGConfigureOption::ForSession);
