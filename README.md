@@ -51,6 +51,25 @@ behind one Rust trait. Pairing, transport, the UI and the Android app are shared
 | [docs/TEST_PLAN.md](docs/TEST_PLAN.md) | 29 tests covering every requirement in the SRS |
 | [brand/BRAND.md](brand/BRAND.md) | Name, mark, color, type, motion, cursor label, voice |
 
+## Install on a Mac
+
+```sh
+tools/package-macos.sh            # -> dist/Mullion-0.1.0.pkg and dist/macos/Mullion.app
+open dist/Mullion-0.1.0.pkg       # installs to /Applications and opens Mullion
+```
+
+Mullion runs in the menu bar (no Dock icon). Its menu shows the address
+tablets connect to, the devices connected, **Arrange Screens…**, **Allow Screen
+Recording…** while that permission is missing, **Show Logs**, and **Quit**. The
+first launch says where to find it. Logs are in `~/Library/Logs/Mullion`;
+settings go in `~/Library/Application Support/Mullion/mullion.env` (same
+`MULLION_*` keys as `.env`). Quit a terminal host first: both use port 47100.
+
+The package is ad-hoc signed and for Apple silicon. With an ad-hoc signature
+macOS asks for Screen Recording again after each rebuild; set
+`MULLION_SIGN_ID` to a signing identity to keep it. A package for other Macs
+needs a Developer ID (`MULLION_SIGN_ID`, `MULLION_INSTALLER_ID`) and notarization.
+
 ## Running the host (macOS)
 
 ```sh

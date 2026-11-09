@@ -4,3 +4,7 @@ target/
 /logs/*.out
 /crates/app/dist/
 /.env
+
+# macOS package output (tools/package-macos.sh)
+/dist/macos/
+/dist/*.pkg

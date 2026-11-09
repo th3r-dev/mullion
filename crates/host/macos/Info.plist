@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Mullion.app. tools/package-macos.sh fills in __VERSION__ and __BUILD__. -->
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key>
+  <string>Mullion</string>
+  <key>CFBundleDisplayName</key>
+  <string>Mullion</string>
+  <key>CFBundleIdentifier</key>
+  <string>app.mullion.host</string>
+  <key>CFBundleExecutable</key>
+  <string>Mullion</string>
+  <key>CFBundleIconFile</key>
+  <string>Mullion</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleInfoDictionaryVersion</key>
+  <string>6.0</string>
+  <key>CFBundleShortVersionString</key>
+  <string>__VERSION__</string>
+  <key>CFBundleVersion</key>
+  <string>__BUILD__</string>
+  <!-- CGVirtualDisplay (Extend mode) is used on macOS 14 and later. -->
+  <key>LSMinimumSystemVersion</key>
+  <string>14.0</string>
+  <!-- Menu bar app: no Dock icon, no app menu. -->
+  <key>LSUIElement</key>
+  <true/>
+  <key>LSApplicationCategoryType</key>
+  <string>public.app-category.productivity</string>
+  <key>NSHighResolutionCapable</key>
+  <true/>
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>Mullion shows this Mac on tablets and computers on your network.</string>
+  <key>NSHumanReadableCopyright</key>
+  <string>Mullion contributors. MIT or Apache-2.0.</string>
+</dict>
+</plist>

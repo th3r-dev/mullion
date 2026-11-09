@@ -1,0 +1,5 @@
+#!/bin/sh
+# Quit a running Mullion.app so the new one replaces it cleanly. Matches the
+# app's process name exactly ("Mullion"); a terminal mullion-host is left alone.
+/usr/bin/pkill -x Mullion 2>/dev/null && /bin/sleep 1
+exit 0
