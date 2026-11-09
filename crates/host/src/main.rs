@@ -1,7 +1,14 @@
 //! `mullion-host`: PoC 1. Captures the main display, encodes in hardware,
 //! streams over WebRTC to one receiver, logs per-frame timing.
+//!
+//! Two ways to run: from a terminal (`tools/run-host.sh`, logs in `logs/`,
+//! settings from `.env`), or as Mullion.app, a menu bar app (logs in
+//! `~/Library/Logs/Mullion`, settings from
+//! `~/Library/Application Support/Mullion/mullion.env`).
 
 mod config;
+#[cfg(target_os = "macos")]
+mod menubar;
 mod platform;
 mod probe_page;
 mod screens;
@@ -71,11 +78,77 @@ struct Args {
     /// Only check that a hardware encoder can be opened, then exit (T-22).
     #[arg(long, default_value_t = false)]
     check_encoder: bool,
+    /// Run as the menu bar app (automatic inside Mullion.app).
+    #[arg(long, default_value_t = false)]
+    menu_bar: bool,
+}
+
+/// Where Mullion.app keeps its files.
+struct AppPaths {
+    logs: PathBuf,
+    support: PathBuf,
+}
+
+impl AppPaths {
+    fn new() -> Self {
+        let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_else(|| "/tmp".into()));
+        Self { logs: home.join("Library/Logs/Mullion"), support: home.join("Library/Application Support/Mullion") }
+    }
+}
+
+/// Inside `Something.app/Contents/MacOS/`?
+fn in_app_bundle() -> bool {
+    std::env::current_exe().map(|p| p.to_string_lossy().contains(".app/Contents/MacOS/")).unwrap_or(false)
+}
+
+/// `KEY=VALUE` lines (as in `.env`); variables already set win.
+fn load_env_file(path: &std::path::Path) {
+    let Ok(text) = std::fs::read_to_string(path) else { return };
+    for line in text.lines() {
+        let line = line.split('#').next().unwrap_or("").trim();
+        if let Some((k, v)) = line.split_once('=') {
+            let (k, v) = (k.trim(), v.trim().trim_matches('"'));
+            if k.starts_with("MULLION_") && std::env::var_os(k).is_none() {
+                std::env::set_var(k, v);
+            }
+        }
+    }
+}
+
+/// Keep the newest `keep` timing logs; they are a few MB each.
+fn prune_logs(dir: &std::path::Path, keep: usize) {
+    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    let mut logs: Vec<PathBuf> = rd
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.file_name().map(|n| n.to_string_lossy().starts_with("host-") && n.to_string_lossy().ends_with(".jsonl")).unwrap_or(false))
+        .collect();
+    logs.sort();
+    let n = logs.len().saturating_sub(keep);
+    for p in logs.into_iter().take(n) {
+        let _ = std::fs::remove_file(p);
+    }
 }
 
 fn main() -> Result<()> {
-    // Env fills the defaults; explicit flags win.
     let args = Args::parse();
+    let app = (args.menu_bar || in_app_bundle()).then(AppPaths::new);
+    if let Some(a) = &app {
+        load_env_file(&a.support.join("mullion.env"));
+    }
+    let as_app = app.is_some();
+    let result = run(args, app);
+    #[cfg(target_os = "macos")]
+    if as_app {
+        if let Err(e) = &result {
+            menubar::fatal("Mullion could not start", &format!("{e:#}"));
+        }
+    }
+    let _ = as_app;
+    result
+}
+
+fn run(args: Args, app: Option<AppPaths>) -> Result<()> {
+    // Env fills the defaults; explicit flags win.
     let mut sw = config::Switches::from_env();
     if let Some(v) = args.port { sw.port = v; }
     if let Some(v) = args.width { sw.width = v; }
@@ -98,9 +171,17 @@ fn main() -> Result<()> {
     }
 
     let default_filter = if sw.debug { "mullion_host=debug,str0m=info" } else { "mullion_host=info,str0m=warn" };
-    tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| default_filter.into()))
-        .init();
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| default_filter.into());
+    match &app {
+        // The app has no terminal: text log next to the timing logs.
+        Some(a) => {
+            std::fs::create_dir_all(&a.logs)?;
+            prune_logs(&a.logs, 10);
+            let file = std::fs::OpenOptions::new().create(true).append(true).open(a.logs.join("host.log"))?;
+            tracing_subscriber::fmt().with_env_filter(filter).with_ansi(false).with_writer(Mutex::new(file)).init();
+        }
+        None => tracing_subscriber::fmt().with_env_filter(filter).init(),
+    }
     info!("switches: {}", sw.banner());
 
     if args.check_encoder {
@@ -121,8 +202,9 @@ fn main() -> Result<()> {
     let host_name = hostname::get()
         .map(|h| h.to_string_lossy().trim_end_matches(".local").to_string())
         .unwrap_or_else(|_| "mullion-host".into());
+    let logs_dir = app.as_ref().map(|a| a.logs.clone()).unwrap_or_else(|| PathBuf::from("logs"));
     let log_path = args.log.clone().unwrap_or_else(|| {
-        PathBuf::from("logs").join(format!("host-{}.jsonl", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()))
+        logs_dir.join(format!("host-{}.jsonl", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()))
     });
     let log = Arc::new(timing::TimingLog::new(Some(&log_path))?);
     info!("timing log: {}", log_path.display());
@@ -165,7 +247,16 @@ fn main() -> Result<()> {
         )?;
 
     let addr = SocketAddr::new(args.bind, sw.port);
-    let signaling = signaling::Signaling::bind(addr, Arc::new(session::SharedHandle(Mutex::new(handle))), host_name.clone())?
+    let shared = Arc::new(session::SharedHandle(Mutex::new(handle)));
+    let signaling = match signaling::Signaling::bind(addr, shared.clone(), host_name.clone()) {
+        Ok(s) => s,
+        #[cfg(target_os = "macos")]
+        Err(e) if app.is_some() => menubar::fatal(
+            "Mullion is already running",
+            &format!("Port {} is in use, most likely by another Mullion (the app or tools/run-host.sh). Quit that one, then open Mullion again.\n\n{e:#}", sw.port),
+        ),
+        Err(e) => return Err(e),
+    }
         .with_config(serde_json::to_value(&sw)?)
         .with_lan_ips(ips.iter().filter(|ip| !ip.is_loopback()).map(|ip| ip.to_string()).collect());
     let lan = ips.first().map(|ip| ip.to_string()).unwrap_or_else(|| "127.0.0.1".into());
@@ -180,6 +271,28 @@ fn main() -> Result<()> {
     });
 
     std::thread::spawn(move || signaling.run());
+
+    #[cfg(target_os = "macos")]
+    if let Some(a) = &app {
+        use signaling::OfferHandler;
+        let first_launch = !a.support.join("welcomed").exists();
+        let _ = std::fs::create_dir_all(&a.support);
+        let _ = std::fs::write(a.support.join("welcomed"), b"");
+        let shared_for_menu = shared.clone();
+        let log_for_quit = log.clone();
+        menubar::run(
+            menubar::MenuModel {
+                host_name: host_name.clone(),
+                address: if sw.port == 47100 { lan.clone() } else { format!("{lan}:{}", sw.port) },
+                port: sw.port,
+                logs_dir: a.logs.clone(),
+                devices: Box::new(move || shared_for_menu.devices()),
+                on_quit: Box::new(move || log_for_quit.flush()),
+            },
+            first_launch,
+        );
+    }
+    let _ = &app;
     let _ = session_thread.join();
     Ok(())
 }

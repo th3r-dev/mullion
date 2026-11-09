@@ -1,0 +1,10 @@
+#!/bin/sh
+# Open Mullion for the person at the screen. The installer runs as root, so
+# launch it in the console user's session. Skipped when installing to another
+# volume or with nobody logged in (e.g. a command-line install over SSH).
+[ "${3:-/}" = "/" ] || exit 0
+user=$(/usr/bin/stat -f%Su /dev/console)
+[ -n "$user" ] && [ "$user" != "root" ] || exit 0
+uid=$(/usr/bin/id -u "$user")
+/bin/launchctl asuser "$uid" /usr/bin/sudo -u "$user" /usr/bin/open -a /Applications/Mullion.app || true
+exit 0
