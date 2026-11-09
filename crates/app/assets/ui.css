@@ -69,6 +69,41 @@ button:has(> .i), .links a { display: inline-flex; align-items: center; justify-
   transition: transform 100ms ease-out, filter 100ms ease-out; }
 .primary:active, .primary.pressed { transform: scale(0.97); filter: brightness(.95); }
 .primary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Nearby hosts: found by sweeping the LAN (receiver.js scan). Rows
+   materialize on a spring as they are found; the bar fills, never loops. */
+.nearby { display: grid; gap: 6px; }
+.nearby-head { display: flex; align-items: center; gap: 8px; min-height: 28px; }
+.nearby-head .label { font-size: 12px; font-weight: 600; letter-spacing: .01em; opacity: .75; }
+.nearby-status { flex: 1; font-size: 12px; opacity: .6; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.icon-btn { flex: none; display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 8px; border: 0; background: transparent; cursor: pointer; opacity: .75;
+  transition: transform 100ms ease-out, opacity 120ms ease-out, background 120ms ease-out; }
+.icon-btn:hover, .icon-btn:focus-visible { opacity: 1; background: color-mix(in srgb, var(--ink) 7%, transparent); }
+.icon-btn:active { transform: scale(0.94); }
+.icon-btn:disabled { opacity: .35; cursor: default; background: transparent; }
+.icon-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.icon-btn .i { width: 16px; height: 16px; }
+.scanbar { height: 2px; border-radius: 1px; background: color-mix(in srgb, var(--ink) 8%, transparent); overflow: hidden; transition: opacity 240ms ease-out; }
+.scanbar.idle { opacity: 0; }
+.scanbar span { display: block; height: 100%; width: 100%; background: var(--accent); transform-origin: 0 50%; transform: scaleX(0); will-change: transform; }
+.hosts { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.hosts:empty { display: none; }
+.host { width: 100%; display: flex; align-items: center; gap: 12px; padding: 10px 12px; text-align: left; cursor: pointer;
+  border-radius: 12px; border: 1px solid var(--line); background: transparent; will-change: transform, opacity;
+  transition: border-color 120ms ease-out, background 120ms ease-out; }
+.host:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.host:active, .host.pressed { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.host:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.host .host-icon { flex: none; display: grid; place-items: center; width: 34px; height: 34px; border-radius: 9px; background: var(--ink); color: var(--paper); }
+.host .host-icon .i { width: 18px; height: 18px; }
+.host .host-text { flex: 1; min-width: 0; display: grid; }
+.host .host-name { font-weight: 650; letter-spacing: -0.005em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.host .host-meta { font-size: 12px; opacity: .65; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.host .tag { flex: none; font-size: 11px; font-weight: 600; letter-spacing: .01em; padding: 2px 7px; border-radius: 999px;
+  color: var(--accent); background: color-mix(in srgb, var(--accent) 9%, transparent); }
+.host .go { flex: none; width: 16px; height: 16px; opacity: .45; }
+.nearby-empty { margin: 0; font-size: 13px; opacity: .7; }
+.nearby-empty:empty { display: none; }
+
 .ghost { justify-self: center; padding: 8px 14px; border-radius: 10px; border: 0; background: transparent; color: var(--ink);
   font-size: 14px; font-weight: 600; opacity: .8; cursor: pointer; transition: transform 100ms ease-out, opacity 120ms ease-out, background 120ms ease-out; }
 .ghost:hover, .ghost:focus-visible { opacity: 1; background: color-mix(in srgb, var(--ink) 7%, transparent); }
@@ -186,6 +221,6 @@ button:has(> .i), .links a { display: inline-flex; align-items: center; justify-
   .hud, .status { outline: 1px solid #fff; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .card, .toolbar, .status, .seg .thumb, .links a, .board, .tile, .slot { transition: opacity 150ms ease !important; }
+  .card, .toolbar, .status, .seg .thumb, .links a, .board, .tile, .slot, .host, .scanbar span { transition: opacity 150ms ease !important; }
   .stage video { transition: opacity 150ms ease; }
 }

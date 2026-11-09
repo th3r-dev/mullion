@@ -203,7 +203,7 @@
 
   async function connect(hostIp, videoEl, opts) {
     opts = opts || {};
-    const port = opts.port || 47100;
+    const port = opts.port || portFor(hostIp);
     const mode = opts.mode === 'extend' ? 'extend' : 'mirror';
     disconnect();
     state.hostIp = hostIp; state.video = videoEl; state.error = null; state.mode = mode;
@@ -268,7 +268,148 @@
     if (state.status !== 'error') setStatus('idle');
   }
 
+  // --- discovery: find Mullion hosts on this network ---
+  // Browsers cannot do mDNS or UDP broadcast, so this asks GET /hello on likely
+  // addresses: the host that served this page, hosts used before, then every
+  // address in their /24 and in this device's own /24 (when the browser lets
+  // us see it), then the usual home ranges if nothing else is known.
+  const HOSTS_KEY = 'mullion.hosts';
+  const isIPv4 = (s) => /^\d{1,3}(\.\d{1,3}){3}$/.test(s || '') && s.split('.').every((n) => +n <= 255);
+  const isPrivate = (ip) => /^10\./.test(ip) || /^192\.168\./.test(ip) || /^172\.(1[6-9]|2\d|3[01])\./.test(ip);
+  const prefix24 = (ip) => ip.split('.').slice(0, 3).join('.');
+  // Port of each host we have heard from, so a host on a non-default port is
+  // dialled where it answered.
+  const knownPorts = new Map();
+  function portFor(ip) {
+    if (knownPorts.has(ip)) return knownPorts.get(ip);
+    if (/^https?:$/.test(location.protocol) && location.hostname === ip && location.port) return +location.port;
+    return 47100;
+  }
+  // "10.0.0.5" or "10.0.0.5:47199" -> { ip, port }
+  function parseTarget(text) {
+    const m = /^\s*([^\s:]+)(?::(\d{1,5}))?\s*$/.exec(text || '');
+    if (!m) return null;
+    const port = m[2] ? +m[2] : null;
+    if (port !== null && (port < 1 || port > 65535)) return null;
+    if (port) knownPorts.set(m[1], port);
+    return { ip: m[1], port: port || portFor(m[1]) };
+  }
+  // Hosts connected to before, newest first, as "ip" or "ip:port".
+  const targetKey = (ip, port) => (!port || port === 47100 ? ip : `${ip}:${port}`);
+  function recentTargets() {
+    try { return (JSON.parse(localStorage.getItem(HOSTS_KEY) || '[]') || []).filter((t) => isIPv4(String(t).split(':')[0])); } catch (e) { return []; }
+  }
+  const recentHosts = () => [...new Set(recentTargets().map((t) => t.split(':')[0]))];
+  function rememberHost(ip, port) {
+    if (!isIPv4(ip)) return;
+    const k = targetKey(ip, port);
+    try { localStorage.setItem(HOSTS_KEY, JSON.stringify([k].concat(recentTargets().filter((x) => x !== k)).slice(0, 6))); } catch (e) { /* */ }
+  }
+  // Was this host (any of its addresses) the last one connected to?
+  function isLastUsed(h) {
+    const last = recentTargets()[0];
+    return !!last && [h.ip].concat(h.ips || []).some((ip) => targetKey(ip, h.port) === last);
+  }
+  // This device's own IPv4 addresses from ICE host candidates. Chrome hides
+  // them behind mDNS names unless the page has camera/mic permission, so this
+  // often finds nothing; the sweep does not depend on it.
+  function localIps(timeoutMs) {
+    return new Promise((resolve) => {
+      const out = new Set();
+      let pc;
+      try { pc = new RTCPeerConnection({ iceServers: [] }); } catch (e) { resolve([]); return; }
+      const done = () => { try { pc.close(); } catch (e) { /* */ } resolve([...out]); };
+      const t = setTimeout(done, timeoutMs || 600);
+      pc.onicecandidate = (ev) => {
+        if (!ev.candidate) { clearTimeout(t); done(); return; }
+        const m = /(\d{1,3}(?:\.\d{1,3}){3})/.exec(ev.candidate.candidate || '');
+        if (m && isPrivate(m[1])) out.add(m[1]);
+      };
+      pc.createDataChannel('x');
+      pc.createOffer().then((o) => pc.setLocalDescription(o)).catch(() => { clearTimeout(t); done(); });
+    });
+  }
+  async function hello(ip, port, timeoutMs, outer) {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), timeoutMs);
+    const stop = () => ctrl.abort();
+    if (outer) outer.addEventListener('abort', stop);
+    const t0 = performance.now();
+    try {
+      const r = await fetch(`http://${ip}:${port}/hello`, { signal: ctrl.signal, cache: 'no-store', credentials: 'omit' });
+      if (!r.ok) return null;
+      const h = await r.json();
+      if (!h || h.app !== 'mullion') return null;
+      knownPorts.set(ip, port);
+      return Object.assign({}, h, { ip, port, ms: Math.round(performance.now() - t0) });
+    } catch (e) {
+      return null;
+    } finally {
+      clearTimeout(t);
+      if (outer) outer.removeEventListener('abort', stop);
+    }
+  }
+  // opts: { port, seeds: [ip], signal, onFound(host), onProgress(done, total), fallback: true }
+  // Resolves with every host found, one entry per host (a host answering on
+  // two addresses is listed once, at the address that answered first).
+  async function scan(opts) {
+    opts = opts || {};
+    const servedByHost = /^https?:$/.test(location.protocol) && isIPv4(location.hostname);
+    const port = opts.port || (servedByHost && location.port ? +location.port : 47100);
+    const signal = opts.signal;
+    const found = new Map(), tried = new Set();
+    let total = 0, done = 0, planned = 0;
+    // Report against the work we expect (seeds plus a /24 per known network),
+    // so a quick seed check does not read as "finished".
+    const progress = () => { if (opts.onProgress) opts.onProgress(done, Math.max(total, planned)); };
+    const report = (h) => {
+      const k = h.name + ':' + h.port;
+      if (found.has(k)) return;
+      found.set(k, h);
+      if (opts.onFound) opts.onFound(h);
+    };
+    async function sweep(ips, concurrency, timeoutMs) {
+      const queue = ips.filter((ip) => isIPv4(ip) && !tried.has(ip));
+      queue.forEach((ip) => tried.add(ip));
+      total += queue.length; progress();
+      let i = 0;
+      const worker = async () => {
+        while (i < queue.length && !(signal && signal.aborted)) {
+          const h = await hello(queue[i++], port, timeoutMs, signal);
+          done++; progress();
+          if (h) report(h);
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(concurrency, queue.length) }, worker));
+    }
+    const uniq = (a) => [...new Set(a)];
+    const seeds = uniq([].concat(servedByHost ? [location.hostname] : [], opts.seeds || [], recentHosts()));
+    const seedNets = uniq(seeds.filter(isPrivate).map(prefix24)).length;
+    planned = seeds.length + 254 * Math.max(1, seedNets);
+    // Known addresses first: usually the answer in well under a second.
+    await sweep(seeds, 8, 1500);
+    const local = await localIps(600);
+    const prefixes = [];
+    const addPrefixes = (ips) => ips.filter(isPrivate).map(prefix24).forEach((p) => { if (!prefixes.includes(p)) prefixes.push(p); });
+    addPrefixes([...found.values()].flatMap((h) => [h.ip].concat(h.ips || [])));
+    addPrefixes(seeds);
+    addPrefixes(local);
+    if (!prefixes.length && opts.fallback !== false) prefixes.push('192.168.1', '192.168.0', '10.0.0');
+    // Now the networks are known, so is the work: re-plan before sweeping.
+    planned = total + 254 * prefixes.length;
+    progress();
+    // Whole /24s, nearest first; a host found on the way may add its other networks.
+    for (let n = 0; n < prefixes.length && !(signal && signal.aborted); n++) {
+      const ips = [];
+      for (let x = 1; x < 255; x++) ips.push(prefixes[n] + '.' + x);
+      await sweep(ips, 48, 900);
+      addPrefixes([...found.values()].flatMap((h) => h.ips || []));
+    }
+    return [...found.values()];
+  }
+
   window.mullion = { connect, disconnect, stats: snapshot, onStatus: (fn) => state.listeners.push(fn), decodeStrip, unwrapMs, deviceId, deviceName, setDeviceName,
+    scan, hello, recentHosts, rememberHost, isLastUsed, portFor, parseTarget,
     // UI work without a host: feed a fake stream and status through the real paths.
     _simulate(status, videoEl, hostName) {
       if (videoEl && !videoEl.srcObject) {

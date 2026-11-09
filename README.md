@@ -62,6 +62,18 @@ cp .env.example .env              # then edit: MULLION_EXTEND=false, MULLION_DIS
 Open `http://<mac-ip>:47100/receiver` on a tablet. `/devices` lists who is
 connected and which screen they own; `/config` shows the live switches.
 
+## Finding the Mac
+
+The setup card lists Mullion hosts on the network under **Nearby**; tap one to
+connect. Typing the IP still works, with a port when it is not 47100
+(`10.0.0.5:47199`). The receiver asks `GET /hello` on, in order: the host that
+served the page, hosts used before, every address of their /24 networks and of
+this device's own, then common home ranges if it knows nothing else. Browsers
+cannot do mDNS or broadcast, hence the sweep; a /24 takes about 5 s, known
+hosts show up at once.
+
+![Nearby hosts](docs/ui/nearby.png)
+
 ## Arranging screens
 
 **Screens** (toolbar while streaming, or **Arrange screens** on the setup card)
