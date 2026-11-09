@@ -396,4 +396,10 @@
   window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (opened && view && !drag) render(false); }, 120); });
 
   window.mullionLayout = { open, close, get view() { return view; } };
+
+  // /receiver#screens (the Mac's menu bar: Arrange Screens…) opens the map
+  // of the host that served the page.
+  if (location.hash === '#screens' && /^https?:$/.test(location.protocol) && location.hostname) {
+    setTimeout(() => open(location.hostname), 250);
+  }
 })();

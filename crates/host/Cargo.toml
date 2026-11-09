@@ -24,7 +24,9 @@ local-ip-address = "0.6"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
-objc2-foundation = { version = "0.3", features = ["NSArray", "NSString", "NSError", "NSDictionary", "NSValue", "NSGeometry"] }
+objc2-foundation = { version = "0.3", features = ["NSArray", "NSString", "NSError", "NSDictionary", "NSValue", "NSGeometry", "NSURL", "NSData", "NSObject", "NSThread"] }
+# Mullion.app: the host as a menu bar app (src/menubar.rs).
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "objc2-core-foundation", "NSApplication", "NSResponder", "NSRunningApplication", "NSStatusBar", "NSStatusItem", "NSStatusBarButton", "NSButton", "NSControl", "NSView", "NSMenu", "NSMenuItem", "NSImage", "NSPasteboard", "NSWorkspace", "NSAlert", "NSWindow", "NSPanel", "NSGraphics", "NSCell", "NSButtonCell", "NSActionCell"] }
 objc2-core-foundation = "0.3"
 objc2-core-media = "0.3"
 objc2-core-video = "0.3"
