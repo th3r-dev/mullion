@@ -11,6 +11,7 @@ mod config;
 mod menubar;
 mod platform;
 mod probe_page;
+mod pairing;
 mod screens;
 mod session;
 mod signaling;
@@ -89,6 +90,10 @@ struct Args {
     #[arg(long, default_value_t = false)]
     menu_bar: bool,
 }
+
+/// The pairing store, for the code prompt's "Don't Allow" (the notifier is
+/// built before the `Arc` exists).
+static PAIRING: std::sync::OnceLock<Arc<pairing::Pairing>> = std::sync::OnceLock::new();
 
 /// Where Mullion.app keeps its files.
 struct AppPaths {
@@ -254,6 +259,32 @@ fn run(args: Args, app: Option<AppPaths>) -> Result<()> {
             log.clone(),
         )?;
 
+    // Pairing: receivers must be let in with a code shown here. Kept with the
+    // app's other files, also when run from a terminal.
+    let pairing = Arc::new(pairing::Pairing::load(
+        Some(AppPaths::new().support.join("paired.json")),
+        Box::new({
+            let in_app = app.is_some();
+            move |n| match n {
+                pairing::Notice::Code { name, code } => {
+                    println!("Pairing code for {name}: {} {}", &code[..3], &code[3..]);
+                    #[cfg(target_os = "macos")]
+                    if in_app {
+                        let p = PAIRING.get().cloned();
+                        menubar::show_pair_code(name, code, Box::new(move || if let Some(p) = &p { p.cancel() }));
+                    }
+                }
+                pairing::Notice::Closed => {
+                    #[cfg(target_os = "macos")]
+                    if in_app {
+                        menubar::close_pair_code();
+                    }
+                }
+            }
+        }),
+    ));
+    let _ = PAIRING.set(pairing.clone());
+
     let addr = SocketAddr::new(args.bind, sw.port);
     let shared = Arc::new(session::SharedHandle(Mutex::new(handle)));
     let signaling = match signaling::Signaling::bind(addr, shared.clone(), host_name.clone()) {
@@ -267,6 +298,7 @@ fn run(args: Args, app: Option<AppPaths>) -> Result<()> {
     }
         .with_config(serde_json::to_value(&sw)?)
         .with_lan_ips(ips.iter().filter(|ip| !ip.is_loopback()).map(|ip| ip.to_string()).collect())
+        .with_pairing(pairing.clone())
         .with_web_port(sw.web_port);
     let lan = ips.first().map(|ip| ip.to_string()).unwrap_or_else(|| "127.0.0.1".into());
     // What to type in a browser: the bare address when port 80 is ours,
@@ -303,6 +335,18 @@ fn run(args: Args, app: Option<AppPaths>) -> Result<()> {
                 port: sw.port,
                 logs_dir: a.logs.clone(),
                 devices: Box::new(move || shared_for_menu.devices()),
+                paired: Box::new({
+                    let p = pairing.clone();
+                    move || p.paired_count()
+                }),
+                forget_paired: Box::new({
+                    let p = pairing.clone();
+                    let s = shared.clone();
+                    move || {
+                        p.forget_all();
+                        s.0.lock().unwrap_or_else(|e| e.into_inner()).end_all();
+                    }
+                }),
                 on_quit: Box::new(move || log_for_quit.flush()),
                 updater: {
                     let u = update::Updater::default();

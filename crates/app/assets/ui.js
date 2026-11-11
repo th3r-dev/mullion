@@ -41,6 +41,7 @@
   const segMirror = $('segMirror'), segExtend = $('segExtend'), thumb = $('thumb');
   const nameOut = $('nameOut'), modeBtn = $('modeBtn'), fsBtn = $('fsBtn'), dcBtn = $('dcBtn');
   const screensBtn = $('screensBtn'), screensSetupBtn = $('screensSetupBtn');
+  const pairBox = $('pairBox'), codeEl = $('code'), codeLabel = $('codeLabel'), pairGo = $('pairGo'), pairCancel = $('pairCancel');
   const modeIcon = $('modeIcon'), modeLabel = $('modeLabel'), fsIcon = $('fsIcon'), fsLabel = $('fsLabel');
   // Buttons hold an icon plus a label span; change the parts, never textContent.
   const setIcon = (use, name) => use.setAttribute('href', '#i-' + name);
@@ -136,7 +137,36 @@
     mullion.setDeviceName(nameEl.value);
     nameOut.textContent = nameEl.value || mullion.deviceName();
     hint.textContent = `Connecting to ${ip}`; hint.classList.remove('err');
-    mullion.connect(ip, video, { mode, name: nameEl.value, port: target.port });
+    mullion.connect(ip, video, { mode, name: nameEl.value, port: target.port, askCode });
+  }
+
+  // Pairing (pair.js): the first time this device connects to a Mac, the Mac
+  // shows a 6-digit code and the person types it here. Resolves to the code,
+  // or null when they cancel.
+  function askCode({ hostName, error }) {
+    const who = hostName || 'the Mac';
+    codeLabel.textContent = `Code shown on ${who}`;
+    hint.textContent = error || `${who} now shows a 6-digit code. Enter it to pair this device.`;
+    hint.classList.toggle('err', !!error);
+    codeEl.value = '';
+    pairBox.hidden = false; goBtn.hidden = true; screensSetupBtn.hidden = true;
+    setTimeout(() => codeEl.focus(), 50);
+    return new Promise((resolve) => {
+      const done = (v) => {
+        pairGo.onclick = pairCancel.onclick = codeEl.onkeydown = null;
+        pairBox.hidden = true; goBtn.hidden = false; screensSetupBtn.hidden = false;
+        if (v != null) { hint.textContent = `Pairing with ${who}`; hint.classList.remove('err'); }
+        resolve(v);
+      };
+      const submit = () => {
+        const digits = codeEl.value.replace(/\D/g, '');
+        if (digits.length !== 6) { hint.textContent = 'The code has 6 digits.'; hint.classList.add('err'); codeEl.focus(); return; }
+        done(digits);
+      };
+      pairGo.onclick = submit;
+      pairCancel.onclick = () => done(null);
+      codeEl.onkeydown = (e) => { if (e.key === 'Enter') submit(); else if (e.key === 'Escape') done(null); };
+    });
   }
   // --- Nearby: Mullion hosts found on this network (receiver.js scan) ---
   const hostsEl = $('hosts'), nearbyStatus = $('nearbyStatus'), nearbyEmpty = $('nearbyEmpty');
@@ -279,7 +309,8 @@
     if (s.status === 'streaming') mullion.rememberHost(s.hostIp, mullion.portFor(s.hostIp));
     if ((s.status === 'idle' || s.status === 'lost' || s.status === 'error') && !scanCtl && Date.now() - lastScan > 30000) setTimeout(runScan, 400);
     switch (s.status) {
-      case 'connecting': hint.textContent = `Connecting to ${s.hostIp}`; break;
+      case 'connecting': hint.textContent = `Connecting to ${s.hostIp}`; hint.classList.remove('err'); break;
+      case 'pairing': break; // askCode owns the hint while the code is asked for
       case 'connected': hint.textContent = `Connected to ${host}`; break;
       case 'streaming':
         stage.classList.add('live');

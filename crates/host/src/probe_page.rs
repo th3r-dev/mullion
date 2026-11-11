@@ -54,14 +54,19 @@ requestAnimationFrame(paint);
 /// `port` is the host's main (signaling) port; the page may have been loaded
 /// from the web port (80), so it is told where offers go.
 pub fn receiver_html(host_ip: &str, port: u16) -> String {
+    let noble = include_str!("../../app/assets/vendor/noble.js");
+    let pair = include_str!("../../app/assets/pair.js");
     let js = include_str!("../../app/assets/receiver.js");
     let ui_js = include_str!("../../app/assets/ui.js");
     let layout_js = include_str!("../../app/assets/layout.js");
     let css = include_str!("../../app/assets/ui.css");
     let version = mullion_proto::version::VERSION;
+    // From the request's Host header: keep only what an address can hold, so
+    // nothing else reaches the attribute.
+    let host_ip: String = host_ip.chars().filter(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-')).take(253).collect();
     let body = include_str!("../../app/assets/ui.html").replace(r#"<input id="ip""#, &format!(r#"<input id="ip" value="{host_ip}""#));
     format!(
-        "<!doctype html>\n<meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1,viewport-fit=cover\">\n<meta name=\"color-scheme\" content=\"light dark\">\n<meta name=\"theme-color\" content=\"#111418\">\n<title>Mullion</title>\n{ICON_LINKS}\n<style>{css}</style>\n{body}\n<script>window.MULLION_HOST_PORT={port};window.MULLION_VERSION=\"{version}\";</script>\n<script>{js}</script>\n<script>{ui_js}</script>\n<script>{layout_js}</script>\n"
+        "<!doctype html>\n<meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1,viewport-fit=cover\">\n<meta name=\"color-scheme\" content=\"light dark\">\n<meta name=\"theme-color\" content=\"#111418\">\n<title>Mullion</title>\n{ICON_LINKS}\n<style>{css}</style>\n{body}\n<script>window.MULLION_HOST_PORT={port};window.MULLION_VERSION=\"{version}\";</script>\n<script>{noble}</script>\n<script>{pair}</script>\n<script>{js}</script>\n<script>{ui_js}</script>\n<script>{layout_js}</script>\n"
     )
 }
 

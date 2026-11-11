@@ -62,6 +62,9 @@ pub struct MenuModel {
     /// Flush logs before the process exits.
     pub on_quit: Box<dyn Fn()>,
     pub updater: Updater,
+    /// How many receivers are paired, and forgetting them all.
+    pub paired: Box<dyn Fn() -> usize>,
+    pub forget_paired: Box<dyn Fn()>,
 }
 
 pub struct Ivars {
@@ -155,6 +158,22 @@ define_class!(
         fn allow_screen_recording(&self, _sender: Option<&AnyObject>) {
             if !CGRequestScreenCaptureAccess() {
                 open_url(PRIVACY_SCREEN);
+            }
+        }
+
+        #[unsafe(method(forgetPaired:))]
+        fn forget_paired(&self, _sender: Option<&AnyObject>) {
+            let m = &self.ivars().model;
+            let n = (m.paired)();
+            let msg = format!("Forget {}?", if n == 1 { "the paired device".to_string() } else { format!("all {n} paired devices") });
+            if alert_with(
+                self.mtm(),
+                &msg,
+                "Each one will need a new code from this Mac before it can show it again. Devices showing it now are disconnected.",
+                "Forget",
+                Some("Cancel"),
+            ) {
+                (m.forget_paired)();
             }
         }
 
@@ -252,6 +271,10 @@ impl Controller {
         if !CGPreflightScreenCaptureAccess() {
             self.action(menu, "Allow Screen Recording…", sel!(allowScreenRecording:), "");
         }
+        let paired = (m.paired)();
+        if paired > 0 {
+            self.action(menu, &format!("Forget Paired Devices ({paired})…"), sel!(forgetPaired:), "");
+        }
         self.action(menu, "Show Logs", sel!(showLogs:), "");
         menu.addItem(&NSMenuItem::separatorItem(mtm));
         match update {
@@ -279,6 +302,44 @@ fn copy_text(text: &str) {
 /// Run `f` on the main thread (AppKit) from a worker thread.
 fn on_main(f: impl FnOnce(MainThreadMarker) + Send + 'static) {
     DispatchQueue::main().exec_async(move || f(MainThreadMarker::new().expect("main queue runs on the main thread")));
+}
+
+/// Set while the pairing code is on screen, so closing it never closes some
+/// other alert.
+static PAIR_PROMPT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Show the code a receiver must type to pair. `on_refuse` runs when the
+/// owner says no. Called from any thread.
+pub fn show_pair_code(name: String, code: String, on_refuse: Box<dyn Fn() + Send>) {
+    on_main(move |mtm| {
+        close_pair_code_now(mtm);
+        PAIR_PROMPT.store(true, std::sync::atomic::Ordering::SeqCst);
+        let spaced = format!("{} {}", &code[..3], &code[3..]);
+        let refused = !alert_with(
+            mtm,
+            &format!("{name} wants to show this Mac"),
+            &format!("Enter this code on {name}:\n\n{spaced}\n\nThe code works for 2 minutes. If you are not connecting {name}, click Don't Allow."),
+            "OK",
+            Some("Don't Allow"),
+        );
+        if PAIR_PROMPT.swap(false, std::sync::atomic::Ordering::SeqCst) && refused {
+            on_refuse();
+        }
+    });
+}
+
+/// Take the pairing code off screen (paired, expired or replaced).
+pub fn close_pair_code() {
+    on_main(close_pair_code_now);
+}
+
+fn close_pair_code_now(mtm: MainThreadMarker) {
+    if PAIR_PROMPT.swap(false, std::sync::atomic::Ordering::SeqCst) {
+        let app = NSApplication::sharedApplication(mtm);
+        if app.modalWindow().is_some() {
+            app.abortModal();
+        }
+    }
 }
 
 /// A modal message with an OK button (and optionally a second one). Returns

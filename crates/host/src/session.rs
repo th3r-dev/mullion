@@ -76,6 +76,7 @@ pub enum Msg {
     NewRtc(Rtc, Mode, DeviceInfo),
     Packet { at: Instant, source: SocketAddr, destination: SocketAddr, data: Vec<u8> },
     Frame(Source, EncodedFrame),
+    EndAll,
     Shutdown,
 }
 
@@ -96,25 +97,47 @@ impl SessionHandle {
     }
 
     pub fn answer(&self, offer_sdp: &str, mode: Mode, device: DeviceInfo) -> Result<String> {
-        let offer = SdpOffer::from_sdp_string(offer_sdp).map_err(|e| anyhow!("bad SDP: {e}"))?;
-        let mut rtc = Rtc::builder()
-            .set_ice_lite(true)
-            .clear_codecs()
-            .enable_h264(true)
-            .build(Instant::now());
-        // Only Constrained Baseline, packetization-mode 1 (SRS A-6).
-        rtc.codec_config().params().to_vec(); // touch to keep API usage visible
-        for addr in &self.local_addrs {
-            let c = Candidate::host(*addr, "udp").map_err(|e| anyhow!("candidate {addr}: {e}"))?;
-            if rtc.add_local_candidate(c).is_none() {
-                warn!("candidate {addr} rejected");
-            }
-        }
-        let answer = rtc.sdp_api().accept_offer(offer).map_err(|e| anyhow!("accept offer: {e}"))?;
+        // str0m can panic on some well-formed but unusual offers (several
+        // video m-lines sharing H.264 payload types). Contain it: one bad
+        // offer must not take signaling down (audit: offer-accept-panic).
+        let (rtc, answer) = build_rtc_contained(&self.local_addrs, offer_sdp)?;
         self.tx.send(Msg::NewRtc(rtc, mode, device)).map_err(|_| anyhow!("session thread gone"))?;
-        Ok(answer.to_sdp_string())
+        Ok(answer)
     }
 
+    /// End every session (devices were forgotten).
+    pub fn end_all(&self) {
+        let _ = self.tx.send(Msg::EndAll);
+    }
+}
+
+/// [`build_rtc`], with a panic inside str0m turned into an error.
+fn build_rtc_contained(local_addrs: &[SocketAddr], offer_sdp: &str) -> Result<(Rtc, String)> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| build_rtc(local_addrs, offer_sdp)))
+        .map_err(|_| anyhow!("unsupported SDP"))?
+}
+
+/// An ice-lite, H.264-only `Rtc` that has accepted `offer_sdp`, and its answer.
+fn build_rtc(local_addrs: &[SocketAddr], offer_sdp: &str) -> Result<(Rtc, String)> {
+    let offer = SdpOffer::from_sdp_string(offer_sdp).map_err(|e| anyhow!("bad SDP: {e}"))?;
+    let mut rtc = Rtc::builder()
+        .set_ice_lite(true)
+        .clear_codecs()
+        .enable_h264(true)
+        .build(Instant::now());
+    // Only Constrained Baseline, packetization-mode 1 (SRS A-6).
+    rtc.codec_config().params().to_vec(); // touch to keep API usage visible
+    for addr in local_addrs {
+        let c = Candidate::host(*addr, "udp").map_err(|e| anyhow!("candidate {addr}: {e}"))?;
+        if rtc.add_local_candidate(c).is_none() {
+            warn!("candidate {addr} rejected");
+        }
+    }
+    let answer = rtc.sdp_api().accept_offer(offer).map_err(|e| anyhow!("accept offer: {e}"))?;
+    Ok((rtc, answer.to_sdp_string()))
+}
+
+impl SessionHandle {
     /// The layout map: every display, its grid cell and its owner.
     pub fn screens(&self) -> Result<ScreensView> {
         let owners = self.devices.lock().unwrap().screens.clone();
@@ -299,6 +322,7 @@ impl SessionLoop {
             let mut touched: Vec<usize> = Vec::new();
             match msg {
                 Some(Msg::Shutdown) => break,
+                Some(Msg::EndAll) => self.end_all("the Mac forgot its paired devices"),
                 Some(Msg::NewRtc(rtc, mode, device)) => {
                     self.next_id += 1;
                     if !self.multi_session {
@@ -744,22 +768,43 @@ fn write_frame(a: &mut Active, frame: &EncodedFrame, log: &TimingLog, log_it: bo
 }
 
 /// Shared so the signaling thread can call `answer` through `Arc<dyn OfferHandler>`.
+/// A panic while the lock is held must not leave it poisoned for every later
+/// request and the menu bar, so each access takes the guard back.
 pub struct SharedHandle(pub Mutex<SessionHandle>);
+
+impl SharedHandle {
+    fn get(&self) -> std::sync::MutexGuard<'_, SessionHandle> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner())
+    }
+}
 
 impl crate::signaling::OfferHandler for SharedHandle {
     fn answer(&self, offer_sdp: &str, mode: Mode, device: DeviceInfo, _peer: SocketAddr) -> Result<String> {
-        self.0.lock().unwrap().answer(offer_sdp, mode, device)
+        self.get().answer(offer_sdp, mode, device)
     }
 
     fn devices(&self) -> DevicesSnapshot {
-        self.0.lock().unwrap().devices()
+        self.get().devices()
     }
 
     fn screens(&self) -> Result<ScreensView> {
-        self.0.lock().unwrap().screens()
+        self.get().screens()
     }
 
     fn set_layout(&self, cells: &[CellAssign]) -> Result<ScreensView> {
-        self.0.lock().unwrap().set_layout(cells)
+        self.get().set_layout(cells)
+    }
+}
+
+#[cfg(test)]
+mod offer_tests {
+    /// The offer that made str0m 0.25 panic in accept_offer (audit finding
+    /// offer-accept-panic-poisons-sharedhandle) is now a plain error.
+    #[test]
+    fn str0m_panic_on_an_offer_is_contained() {
+        let sdp = include_str!("testdata-str0m-panic.sdp");
+        let addrs = ["127.0.0.1:47901".parse().unwrap()];
+        let err = super::build_rtc_contained(&addrs, sdp).err().expect("this offer is refused");
+        assert!(err.to_string().contains("unsupported SDP"), "{err:#}");
     }
 }

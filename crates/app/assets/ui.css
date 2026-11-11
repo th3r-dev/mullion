@@ -110,6 +110,11 @@ button:has(> .i), .links a { display: inline-flex; align-items: center; justify-
 .ghost:active { transform: scale(0.97); }
 .ghost:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .hint { font-size: 13px; opacity: .7; min-height: 1.5em; }
+/* Pairing: the 6-digit code the Mac shows. */
+/* Buttons set their own display, which would beat the hidden attribute. */
+.pair[hidden], #card button[hidden] { display: none; }
+.pair input { font: 600 26px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .25em; text-align: center; font-variant-numeric: tabular-nums; }
+.pair-actions { display: grid; gap: 6px; margin-top: 6px; }
 .hint.err { opacity: 1; }
 
 /* Project links: bottom-right of the setup screen, quiet until touched.
