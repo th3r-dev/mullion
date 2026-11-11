@@ -210,8 +210,9 @@
     const typed = mullion.parseTarget(ipEl.value);
     await mullion.scan({
       signal: ctl.signal,
+      // parseTarget remembered a typed port for that address only; the rest
+      // of the network is asked on the default port.
       seeds: typed ? [typed.ip] : [],
-      port: typed && typed.port !== 47100 ? typed.port : undefined,
       onFound: (h) => { if (scanCtl !== ctl) return; showHost(h); nearbyStatus.textContent = `Looking on this network · ${plural(rows.size, 'found', 'found')}`; },
       // The sweep can grow as it learns new networks; the bar only moves forward.
       onProgress: (d, t) => { if (scanCtl !== ctl || !t) return; const f = d / t; if (f > fillMax) { fillMax = f; fill.to(f); } },

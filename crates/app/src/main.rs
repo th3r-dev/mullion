@@ -24,15 +24,49 @@ fn main() {
     // icon comes from the .exe's icon resource (build.rs). Closing the window
     // first hides it, so App can say bye to the host before it really closes.
     #[cfg(feature = "desktop")]
-    dioxus::LaunchBuilder::desktop()
-        .with_cfg(
-            dioxus::desktop::Config::new()
-                .with_window(dioxus::desktop::WindowBuilder::new().with_title("Mullion"))
-                .with_close_behaviour(dioxus::desktop::WindowCloseBehaviour::WindowHides),
-        )
-        .launch(App);
+    {
+        let cfg = dioxus::desktop::Config::new()
+            .with_window(dioxus::desktop::WindowBuilder::new().with_title("Mullion"))
+            .with_close_behaviour(dioxus::desktop::WindowCloseBehaviour::WindowHides);
+        // Windows: one data folder for every release (see `windows_data_dir`).
+        #[cfg(windows)]
+        let cfg = match windows_data_dir() {
+            Some(dir) => cfg.with_data_directory(dir),
+            None => cfg,
+        };
+        dioxus::LaunchBuilder::desktop().with_cfg(cfg).launch(App);
+    }
     #[cfg(not(feature = "desktop"))]
     dioxus::launch(App);
+}
+
+/// Where WebView2 keeps localStorage (recent hosts, device name, mode):
+/// %LOCALAPPDATA%\Mullion. Dioxus's default is a folder named after the .exe,
+/// and every release has a new file name, so each update started empty.
+#[cfg(all(feature = "desktop", windows))]
+fn windows_data_dir() -> Option<std::path::PathBuf> {
+    std::env::var_os("LOCALAPPDATA").map(|d| std::path::PathBuf::from(d).join("Mullion"))
+}
+
+/// This device's private IPv4 addresses, the default-route one first. The
+/// web view's own way of finding them (WebRTC host candidates) is usually
+/// hidden, and without them Nearby can only guess common home networks.
+fn local_ipv4s() -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut add = |ip: std::net::IpAddr| {
+        if let std::net::IpAddr::V4(v4) = ip {
+            if v4.is_private() && !out.contains(&v4.to_string()) {
+                out.push(v4.to_string());
+            }
+        }
+    };
+    if let Ok(ip) = local_ip_address::local_ip() {
+        add(ip);
+    }
+    if let Ok(list) = local_ip_address::list_afinet_netifas() {
+        list.into_iter().for_each(|(_, ip)| add(ip));
+    }
+    out
 }
 
 #[component]
@@ -40,6 +74,8 @@ fn App() -> Element {
     // Boot the shared scripts once the shared markup is in the document.
     use_future(move || async move {
         let _ = eval(&format!("window.MULLION_VERSION = {:?};", mullion_proto::version::VERSION)).await;
+        let ips = serde_json::to_string(&local_ipv4s()).unwrap_or_else(|_| "[]".into());
+        let _ = eval(&format!("window.MULLION_LOCAL_IPS = {ips};")).await;
         let _ = eval(RECEIVER_JS).await;
         let _ = eval(UI_JS).await;
         let _ = eval(LAYOUT_JS).await;

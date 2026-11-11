@@ -391,7 +391,10 @@
       let i = 0;
       const worker = async () => {
         while (i < queue.length && !(signal && signal.aborted)) {
-          const h = await hello(queue[i++], port, timeoutMs, signal);
+          // A host known on another port (typed ip:port, found before) is asked
+          // there; every other address on the sweep's port.
+          const ip = queue[i++];
+          const h = await hello(ip, knownPorts.get(ip) || port, timeoutMs, signal);
           done++; progress();
           if (h) report(h);
         }
@@ -404,7 +407,8 @@
     planned = seeds.length + 254 * Math.max(1, seedNets);
     // Known addresses first: usually the answer in well under a second.
     await sweep(seeds, 8, 1500);
-    const local = await localIps(600);
+    // The apps pass this device's addresses (main.rs); WebRTC usually hides them.
+    const local = uniq((window.MULLION_LOCAL_IPS || []).concat(await localIps(600)));
     const prefixes = [];
     const addPrefixes = (ips) => ips.filter(isPrivate).map(prefix24).forEach((p) => { if (!prefixes.includes(p)) prefixes.push(p); });
     addPrefixes([...found.values()].flatMap((h) => [h.ip].concat(h.ips || [])));
