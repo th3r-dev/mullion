@@ -44,7 +44,7 @@ impl Assembler {
 }
 
 #[cfg(target_os = "android")]
-pub use android::{deny_pairing, events, set_share};
+pub use android::{deny_pairing, events, set_fullscreen, set_share};
 
 #[cfg(target_os = "android")]
 mod android {
@@ -109,6 +109,16 @@ mod android {
                 tracing::warn!("{method}: {e}");
                 let _ = env.exception_clear();
                 emit(json!({ "kind": "share", "state": "off", "error": "This tablet can't share its screen." }));
+            }
+        });
+    }
+
+    /// The page's Full screen button: Android's web view ignores the page's
+    /// own request, so the activity hides the system bars instead.
+    pub fn set_fullscreen(on: bool) {
+        dispatch(move |env, activity, _| {
+            if env.call_method(activity, "setFullscreen", "(Z)V", &[on.into()]).is_err() {
+                let _ = env.exception_clear();
             }
         });
     }

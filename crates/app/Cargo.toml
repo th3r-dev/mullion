@@ -11,6 +11,8 @@ serde_json = { workspace = true }
 serde = { workspace = true }
 # The Nearby sweep's answer comes back from a thread (main.rs).
 futures-channel = "0.3"
+# Links out of the page (the update, GitHub) open in the system browser.
+webbrowser = "1"
 
 # Android: "Share this screen" runs a host (src/share.rs).
 [target.'cfg(target_os = "android")'.dependencies]

@@ -146,7 +146,14 @@ button:has(> .i), .links a { display: inline-flex; align-items: center; justify-
 .update { position: fixed; left: max(16px, env(safe-area-inset-left)); bottom: calc(max(14px, env(safe-area-inset-bottom)) + 22px);
   font-size: 13px; font-weight: 600; color: var(--accent); text-decoration: none; padding: 4px 10px; }
 .update:hover, .update:focus-visible { text-decoration: underline; }
-.update[hidden] { display: none; }
+.update[hidden], .update-bar[hidden] { display: none; }
+/* A newer version: asked once per start, above everything on the setup screen. */
+.update-bar { position: fixed; z-index: 30; left: 50%; transform: translateX(-50%);
+  bottom: calc(max(16px, env(safe-area-inset-bottom)) + 52px); width: min(420px, calc(100% - 32px));
+  display: grid; gap: 10px; padding: 14px; border-radius: var(--radius);
+  background: var(--paper); border: 1px solid var(--line); box-shadow: 0 8px 28px rgba(0, 0, 0, .18); }
+.update-bar p { margin: 0; font-size: 14px; line-height: 1.45; }
+.update-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 /* GitHub's sponsor heart colour; a non-text mark (4.7:1 light, 5.9:1 dark on --paper). */
 .links .heart { color: #BF3989; }
 @media (prefers-color-scheme: dark) { .links .heart { color: #E85AAD; } }

@@ -97,13 +97,17 @@ fn App() -> Element {
     //   While Android pauses the app (its consent and permission dialogs,
     //   another app in front) those events wait until the page next sends
     //   something; poke() is that something.
-    // - fullscreen(on), desktop only: the page's Full screen button fills only
-    //   the web view (WebView2 does not resize the window), so this makes the
-    //   window itself borderless full screen.
+    // - fullscreen(on): the page's Full screen button. On Windows the page's own
+    //   fills only the web view (WebView2 does not resize the window), so the
+    //   window itself goes borderless full screen; on Android the web view
+    //   ignores it, so the activity hides the system bars (MainActivity.kt).
+    // - open(url): an https link in the system browser (the update, GitHub).
     // Replies are tagged, and slow work runs on its own thread, so one sweep
     // never holds up a request or the full screen toggle.
     use_future(move || async move {
-        let fullscreen = if cfg!(feature = "desktop") { "fullscreen: (on) => dioxus.send({ fullscreen: !!on })," } else { "" };
+        // Every app: full screen is native (a web view's own fills only itself on
+        // Windows, and does nothing on Android), links out open in the browser.
+        let fullscreen = "fullscreen: (on) => dioxus.send({ fullscreen: !!on }), open: (url) => dioxus.send({ open: String(url) }),";
         let share = if cfg!(target_os = "android") {
             "share: (on, name) => dioxus.send({ share: { on: !!on, name: String(name || '') } }), pairDeny: () => dioxus.send({ pairDeny: true }), poke: () => dioxus.send({ poke: true }),"
         } else {
@@ -165,9 +169,21 @@ fn App() -> Element {
                     share::deny_pairing();
                 }
             }
-            #[cfg(feature = "desktop")]
+            if let Some(url) = msg["open"].as_str() {
+                // Only web pages: the page is ours, but this is a way out of it.
+                if url.starts_with("https://") {
+                    if let Err(e) = webbrowser::open(url) {
+                        eprintln!("open {url}: {e}");
+                    }
+                }
+            }
             if let Some(on) = msg["fullscreen"].as_bool() {
-                dioxus::desktop::window().set_fullscreen(on);
+                // Borderless(None): the window's own monitor. dioxus's
+                // set_fullscreen does nothing when it cannot name that monitor.
+                #[cfg(feature = "desktop")]
+                dioxus::desktop::window().window.set_fullscreen(on.then_some(dioxus::desktop::tao::window::Fullscreen::Borderless(None)));
+                #[cfg(target_os = "android")]
+                share::set_fullscreen(on);
             }
         }
     });
