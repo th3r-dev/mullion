@@ -290,9 +290,9 @@
     }
     return 47100;
   }
-  // "10.0.0.5" or "10.0.0.5:47199" -> { ip, port }
+  // "10.0.0.5", "10.0.0.5:47199" or a pasted "http://10.0.0.5/" -> { ip, port }
   function parseTarget(text) {
-    const m = /^\s*([^\s:]+)(?::(\d{1,5}))?\s*$/.exec(text || '');
+    const m = /^\s*(?:https?:\/\/)?([^\s:/]+)(?::(\d{1,5}))?(?:\/\S*)?\s*$/i.exec(text || '');
     if (!m) return null;
     const port = m[2] ? +m[2] : null;
     if (port !== null && (port < 1 || port > 65535)) return null;

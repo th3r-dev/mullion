@@ -25,6 +25,9 @@ pub struct Switches {
     pub multi_session: bool,
     /// MULLION_DEBUG: verbose logging for the host and str0m.
     pub debug: bool,
+    /// MULLION_UPDATE_CHECK: Mullion.app asks GitHub for a newer release every
+    /// 6 hours. Off: only "Check for Updates…" asks.
+    pub update_check: bool,
     /// MULLION_PORT, MULLION_FPS, MULLION_BITRATE_KBPS, MULLION_WIDTH, MULLION_HEIGHT.
     pub port: u16,
     /// MULLION_WEB_PORT: also serve on this port, so the bare address
@@ -46,6 +49,7 @@ impl Default for Switches {
             require_hw_encoder: true,
             multi_session: true,
             debug: false,
+            update_check: true,
             port: mullion_proto::signal::DEFAULT_PORT,
             web_port: 80,
             fps: 60,
@@ -79,6 +83,7 @@ impl Switches {
         s.require_hw_encoder = b("MULLION_REQUIRE_HW_ENCODER", s.require_hw_encoder);
         s.multi_session = b("MULLION_MULTI_SESSION", s.multi_session);
         s.debug = b("MULLION_DEBUG", s.debug);
+        s.update_check = b("MULLION_UPDATE_CHECK", s.update_check);
         let n = |k: &str| get(k).and_then(|v| v.trim().parse::<u64>().ok());
         if let Some(v) = n("MULLION_DISPLAY_GRACE_SECS") {
             s.display_grace_secs = v;

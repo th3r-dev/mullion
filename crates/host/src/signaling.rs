@@ -301,7 +301,7 @@ impl Signaling {
                 let hello = Hello {
                     app: "mullion",
                     name: &self.host_name,
-                    version: env!("CARGO_PKG_VERSION"),
+                    version: mullion_proto::version::VERSION,
                     platform: platform_name(),
                     port: self.local_addr().port(),
                     ips: &self.lan_ips,

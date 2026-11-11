@@ -12,8 +12,12 @@ Maskable icons get the brand paper background and safe-zone padding.
 
 For the Mac app (crates/host/macos/): Mullion.icns, the mark on a paper
 rounded-square tile with a soft shadow (the macOS icon grid: 824 px tile in a
-1024 px canvas), and MenuBarIcon.png, a 36 px template glyph of the two panes
-(the left one filled, the right one outlined) for the menu bar at 18 pt.
+1024 px canvas), and MenuBarIcon.png, a 36 px template glyph for the menu bar
+at 18 pt: a laptop with a tablet beside it, "this Mac and another screen".
+The menu bar dims it while nothing is connected.
+
+  python3 tools/make-icons.py             everything (needs Chrome)
+  python3 tools/make-icons.py --menubar   only MenuBarIcon.png
 """
 import base64, os, re, shutil, subprocess, sys, tempfile
 from pathlib import Path
@@ -121,15 +125,25 @@ def make_mac(sq: Image.Image):
         subprocess.run(["iconutil", "-c", "icns", str(iconset), "-o", str(MAC / "Mullion.icns")], check=True)
     icon.resize((256, 256), Image.LANCZOS).save(MAC / "AppIcon-256.png")
 
-    # Menu bar glyph: template image (only alpha counts), drawn 4x then reduced.
-    k = 4
+    menubar_glyph()
+
+
+def menubar_glyph():
+    """Laptop + tablet, a template image (only alpha counts), drawn 8x then
+    reduced to 36 px (18 pt @2x). Units below are 36 px grid units."""
+    k = 8
     g = Image.new("RGBA", (36 * k, 36 * k), (0, 0, 0, 0))
     d = ImageDraw.Draw(g)
-    y0, y1, rr = 7 * k, 29 * k, 3 * k
-    d.rounded_rectangle((3 * k, y0, 16 * k, y1), rr, fill=(0, 0, 0, 255))
-    d.rounded_rectangle((20 * k, y0, 33 * k, y1), rr, outline=(0, 0, 0, 255), width=int(2.5 * k))
+    ink = (0, 0, 0, 255)
+    box = lambda *v: [x * k for x in v]
+    d.rounded_rectangle(box(3, 9, 22, 23), 2 * k, outline=ink, width=int(2.4 * k))     # laptop screen
+    d.rounded_rectangle(box(0.5, 24, 24.5, 27), 1.2 * k, fill=ink)                     # laptop base
+    d.rounded_rectangle(box(25, 12, 34.5, 27), 2 * k, outline=ink, width=int(2.4 * k))  # tablet
+    d.ellipse(box(28.9, 24, 30.6, 25.7), fill=ink)                                       # home button
     g.resize((36, 36), Image.LANCZOS).save(MAC / "MenuBarIcon.png")
 
 
 if __name__ == "__main__":
+    if sys.argv[1:] == ["--menubar"]:
+        sys.exit(menubar_glyph())
     sys.exit(main())

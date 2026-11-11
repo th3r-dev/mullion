@@ -53,13 +53,14 @@
       <p class="nearby-empty" id="nearbyEmpty"></p>
     </section>
     <div class="field">
-      <label for="ip">Or type the IP</label>
-      <input id="ip" inputmode="decimal" autocomplete="off" placeholder="IP shown by Mullion on the Mac, e.g. 10.43.77.126">
+      <label for="ip">Or enter the address</label>
+      <input id="ip" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Address shown by Mullion, e.g. 10.43.77.126">
     </div>
     <button class="primary" id="go" type="button"><svg class="i" aria-hidden="true"><use href="#i-connect"/></svg><span>Connect</span></button>
     <button class="ghost" id="screensSetupBtn" type="button" title="See every screen of the Mac and move them"><svg class="i" aria-hidden="true"><use href="#i-screens"/></svg><span>Arrange screens</span></button>
     <div class="hint" id="hint"></div>
   </div>
+  <p class="version" id="version"></p>
   <nav class="links" aria-label="Project">
     <a href="https://github.com/th3r-dev/mullion" target="_blank" rel="noopener noreferrer"><svg class="i" aria-hidden="true"><use href="#i-github"/></svg><span>GitHub</span></a>
     <a href="https://github.com/sponsors/th3r-dev" target="_blank" rel="noopener noreferrer"><svg class="i heart" aria-hidden="true"><use href="#i-heart"/></svg><span>Sponsor</span></a>

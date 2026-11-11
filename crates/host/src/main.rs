@@ -15,6 +15,10 @@ mod screens;
 mod session;
 mod signaling;
 mod timing;
+#[cfg(target_os = "macos")]
+mod update;
+#[cfg(target_os = "macos")]
+mod viewer;
 
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
@@ -300,6 +304,13 @@ fn run(args: Args, app: Option<AppPaths>) -> Result<()> {
                 logs_dir: a.logs.clone(),
                 devices: Box::new(move || shared_for_menu.devices()),
                 on_quit: Box::new(move || log_for_quit.flush()),
+                updater: {
+                    let u = update::Updater::default();
+                    if sw.update_check {
+                        u.start();
+                    }
+                    u
+                },
             },
             first_launch,
         );

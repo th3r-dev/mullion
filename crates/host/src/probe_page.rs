@@ -58,9 +58,10 @@ pub fn receiver_html(host_ip: &str, port: u16) -> String {
     let ui_js = include_str!("../../app/assets/ui.js");
     let layout_js = include_str!("../../app/assets/layout.js");
     let css = include_str!("../../app/assets/ui.css");
+    let version = mullion_proto::version::VERSION;
     let body = include_str!("../../app/assets/ui.html").replace(r#"<input id="ip""#, &format!(r#"<input id="ip" value="{host_ip}""#));
     format!(
-        "<!doctype html>\n<meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1,viewport-fit=cover\">\n<meta name=\"color-scheme\" content=\"light dark\">\n<meta name=\"theme-color\" content=\"#111418\">\n<title>Mullion</title>\n{ICON_LINKS}\n<style>{css}</style>\n{body}\n<script>window.MULLION_HOST_PORT={port};</script>\n<script>{js}</script>\n<script>{ui_js}</script>\n<script>{layout_js}</script>\n"
+        "<!doctype html>\n<meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1,viewport-fit=cover\">\n<meta name=\"color-scheme\" content=\"light dark\">\n<meta name=\"theme-color\" content=\"#111418\">\n<title>Mullion</title>\n{ICON_LINKS}\n<style>{css}</style>\n{body}\n<script>window.MULLION_HOST_PORT={port};window.MULLION_VERSION=\"{version}\";</script>\n<script>{js}</script>\n<script>{ui_js}</script>\n<script>{layout_js}</script>\n"
     )
 }
 

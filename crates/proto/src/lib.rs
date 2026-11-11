@@ -7,3 +7,4 @@ pub mod keyframe;
 pub mod layout;
 pub mod probe;
 pub mod signal;
+pub mod version;

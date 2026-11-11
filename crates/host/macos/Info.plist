@@ -33,6 +33,12 @@
   <true/>
   <key>NSLocalNetworkUsageDescription</key>
   <string>Mullion shows this Mac on tablets and computers on your network.</string>
+  <!-- Connect to Another Computer…: plain HTTP to hosts on the LAN. -->
+  <key>NSAppTransportSecurity</key>
+  <dict>
+    <key>NSAllowsLocalNetworking</key>
+    <true/>
+  </dict>
   <key>NSHumanReadableCopyright</key>
   <string>Mullion contributors. MIT or Apache-2.0.</string>
 </dict>
