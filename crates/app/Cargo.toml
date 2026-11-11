@@ -12,6 +12,17 @@ serde = { workspace = true }
 # The Nearby sweep's answer comes back from a thread (main.rs).
 futures-channel = "0.3"
 
+# Android: "Share this screen" runs a host (src/share.rs).
+[target.'cfg(target_os = "android")'.dependencies]
+mullion-host = { path = "../host" }
+jni = "0.21"
+anyhow = { workspace = true }
+tracing = { workspace = true }
+futures-util = "0.3"
+
+[dev-dependencies]
+mullion-host = { path = "../host" }
+
 [features]
 default = ["desktop"]
 desktop = ["dioxus/desktop"]

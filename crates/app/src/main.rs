@@ -10,6 +10,9 @@
 // Windows release build: a window app, no console window behind it.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
+#[cfg(any(target_os = "android", test))]
+mod share;
+
 use dioxus::document::eval;
 use dioxus::prelude::*;
 
@@ -88,6 +91,12 @@ fn App() -> Element {
     //   (mullion_proto::lanhttp). The Android page is https://dioxus.index.html
     //   and its WebView blocks every http:// request as mixed content, so the
     //   page cannot reach a host with fetch.
+    // - share(on, name), pairDeny(), Android only: "Share this screen"
+    //   (share.rs). Its state and pairing codes come back as a
+    //   `mullion-native` event on window ({kind: 'share' | 'pair_code' | 'pair_closed'}).
+    //   While Android pauses the app (its consent and permission dialogs,
+    //   another app in front) those events wait until the page next sends
+    //   something; poke() is that something.
     // - fullscreen(on), desktop only: the page's Full screen button fills only
     //   the web view (WebView2 does not resize the window), so this makes the
     //   window itself borderless full screen.
@@ -95,9 +104,14 @@ fn App() -> Element {
     // never holds up a request or the full screen toggle.
     use_future(move || async move {
         let fullscreen = if cfg!(feature = "desktop") { "fullscreen: (on) => dioxus.send({ fullscreen: !!on })," } else { "" };
+        let share = if cfg!(target_os = "android") {
+            "share: (on, name) => dioxus.send({ share: { on: !!on, name: String(name || '') } }), pairDeny: () => dioxus.send({ pairDeny: true }), poke: () => dioxus.send({ poke: true }),"
+        } else {
+            ""
+        };
         let bridge = eval(&format!(
             "const nearby = [], pending = new Map(); let next = 1;
-             window.mullionNative = {{ {fullscreen}
+             window.mullionNative = {{ {fullscreen} {share}
                nearby: () => new Promise((r) => {{ if (nearby.push(r) === 1) dioxus.send({{ nearby: true }}); }}),
                http: (method, url, headers, body) => new Promise((r) => {{ const id = next++; pending.set(id, r); dioxus.send({{ http: {{ id, method, url, headers: headers || {{}}, body: body || '' }} }}); }}),
              }};
@@ -105,8 +119,17 @@ fn App() -> Element {
                const m = await dioxus.recv();
                if (m.kind === 'nearby') nearby.splice(0).forEach((r) => r(m.found));
                else if (m.kind === 'http') {{ const r = pending.get(m.id); pending.delete(m.id); if (r) r(m); }}
+               else window.dispatchEvent(new CustomEvent('mullion-native', {{ detail: m }}));
              }}"
         ));
+        #[cfg(target_os = "android")]
+        spawn(async move {
+            use futures_util::StreamExt;
+            let mut events = share::events();
+            while let Some(v) = events.next().await {
+                let _ = bridge.send(v);
+            }
+        });
         let mut rx = bridge;
         while let Ok(msg) = rx.recv::<serde_json::Value>().await {
             if msg["nearby"] == true {
@@ -132,6 +155,15 @@ fn App() -> Element {
                         Err(e) => serde_json::json!({ "kind": "http", "id": id, "error": e }),
                     });
                 });
+            }
+            #[cfg(target_os = "android")]
+            {
+                if let Some(on) = msg["share"]["on"].as_bool() {
+                    share::set_share(on, msg["share"]["name"].as_str().unwrap_or("").to_string());
+                }
+                if msg["pairDeny"] == true {
+                    share::deny_pairing();
+                }
             }
             #[cfg(feature = "desktop")]
             if let Some(on) = msg["fullscreen"].as_bool() {

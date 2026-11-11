@@ -66,6 +66,18 @@
     </div>
     <button class="primary" id="go" type="button"><svg class="i" aria-hidden="true"><use href="#i-connect"/></svg><span>Connect</span></button>
     <button class="ghost" id="screensSetupBtn" type="button" title="See every screen of the Mac and move them"><svg class="i" aria-hidden="true"><use href="#i-screens"/></svg><span>Arrange screens</span></button>
+    <button class="ghost" id="shareBtn" type="button" title="Show this tablet's screen on a Mac or in a browser" hidden><svg class="i" aria-hidden="true"><use href="#i-mirror"/></svg><span>Share this screen</span></button>
+    <section class="share" id="shareBox" aria-labelledby="shareTitle" hidden>
+      <h2 class="label" id="shareTitle">Sharing this screen</h2>
+      <p>On the Mac, open Mullion's menu, choose <b>Connect to Another Computer…</b>, then pick this tablet or enter <b id="shareAddr"></b>.</p>
+      <div class="share-code" id="shareCodeBox" role="alert" hidden>
+        <p id="shareWho"></p>
+        <output class="code" id="shareCode"></output>
+        <button class="ghost" id="shareDeny" type="button"><span>Don't Allow</span></button>
+      </div>
+      <p class="share-viewers" id="shareViewers" aria-live="polite"></p>
+      <button class="primary" id="shareStop" type="button"><span>Stop sharing</span></button>
+    </section>
     <div class="hint" id="hint"></div>
   </div>
   <p class="version" id="version"></p>
