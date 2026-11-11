@@ -66,6 +66,26 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Test
         run: cargo test -p mullion-proto -p mullion-host
+      # The signing certificate: the same one every release, so macOS keeps
+      # Mullion's Screen Recording permission across updates. Self-signed is
+      # enough for that (tools/package-macos.sh). Without the secret the app
+      # is ad-hoc signed and every update asks for the permission again.
+      - name: Signing certificate
+        env:
+          P12: ${{ secrets.MACOS_SIGN_P12 }}
+          P12_PASSWORD: ${{ secrets.MACOS_SIGN_P12_PASSWORD }}
+        run: |
+          if [ -z "$P12" ]; then echo "::warning::No MACOS_SIGN_P12 secret: ad-hoc signing"; exit 0; fi
+          kc="$RUNNER_TEMP/signing.keychain-db"; kp=$(uuidgen)
+          echo "$P12" | base64 --decode > "$RUNNER_TEMP/sign.p12"
+          security create-keychain -p "$kp" "$kc"
+          security set-keychain-settings -lut 3600 "$kc"
+          security unlock-keychain -p "$kp" "$kc"
+          security import "$RUNNER_TEMP/sign.p12" -k "$kc" -P "$P12_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$kp" "$kc" >/dev/null
+          security list-keychains -d user -s "$kc" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/sign.p12"
+          echo "MULLION_SIGN_ID=Mullion Code Signing" >> "$GITHUB_ENV"
       - name: Package
         run: tools/package-macos.sh
       - uses: actions/upload-artifact@v7

@@ -313,6 +313,20 @@ impl Signaling {
                     .with_header(Header::from_bytes("Cache-Control", "no-store").unwrap());
                 req.respond(with_cors(resp)).context("respond")
             }
+            // Other Mullion hosts on this host's networks, for the pages it
+            // serves: a page cannot sweep the network itself (nearby.rs). On its
+            // own thread, so offers are not held up for the 2 s or so it takes.
+            ("/nearby", Method::Get) => {
+                let port = self.local_addr().port();
+                std::thread::spawn(move || {
+                    let found = mullion_proto::nearby::sweep(port);
+                    let resp = Response::from_data(serde_json::to_vec(&found).unwrap_or_default())
+                        .with_header(Header::from_bytes("Content-Type", "application/json").unwrap())
+                        .with_header(Header::from_bytes("Cache-Control", "no-store").unwrap());
+                    let _ = req.respond(with_cors(resp));
+                });
+                Ok(())
+            }
             ("/health", Method::Get) => {
                 let resp = Response::from_string(format!("mullion-host {}\n", self.host_name));
                 req.respond(with_cors(resp)).context("respond")

@@ -238,7 +238,7 @@
   let nativeFs = false;
   function setNativeFullscreen(on) { nativeFs = on; window.mullionNative.fullscreen(on); syncFullscreen(); }
   fsBtn.addEventListener('click', () => {
-    if (window.mullionNative) { setNativeFullscreen(!nativeFs); return; }
+    if (window.mullionNative && window.mullionNative.fullscreen) { setNativeFullscreen(!nativeFs); return; }
     const d = document.documentElement;
     if (!document.fullscreenElement) (d.requestFullscreen || d.webkitRequestFullscreen).call(d); else (document.exitFullscreen || document.webkitExitFullscreen).call(document);
   });

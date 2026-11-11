@@ -3303,7 +3303,7 @@ name = "mullion-app"
 version = "0.1.0"
 dependencies = [
  "dioxus",
- "local-ip-address",
+ "futures-channel",
  "mullion-proto",
  "serde",
  "serde_json",
@@ -3345,6 +3345,7 @@ dependencies = [
 name = "mullion-proto"
 version = "0.1.0"
 dependencies = [
+ "local-ip-address",
  "serde",
  "serde_json",
 ]

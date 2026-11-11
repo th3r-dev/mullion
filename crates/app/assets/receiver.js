@@ -280,14 +280,11 @@
   }
 
   // --- discovery: find Mullion hosts on this network ---
-  // Browsers cannot do mDNS or UDP broadcast, so this asks GET /hello on likely
-  // addresses: the host that served this page, hosts used before, then every
-  // address in their /24 and in this device's own /24 (when the browser lets
-  // us see it), then the usual home ranges if nothing else is known.
+  // Asks GET /hello at the addresses known here (the host that served this
+  // page, hosts used before, a typed one), then has native code sweep the
+  // network (scan, below).
   const HOSTS_KEY = 'mullion.hosts';
   const isIPv4 = (s) => /^\d{1,3}(\.\d{1,3}){3}$/.test(s || '') && s.split('.').every((n) => +n <= 255);
-  const isPrivate = (ip) => /^10\./.test(ip) || /^192\.168\./.test(ip) || /^172\.(1[6-9]|2\d|3[01])\./.test(ip);
-  const prefix24 = (ip) => ip.split('.').slice(0, 3).join('.');
   // Port of each host we have heard from, so a host on a non-default port is
   // dialled where it answered.
   const knownPorts = new Map();
@@ -326,25 +323,6 @@
     const last = recentTargets()[0];
     return !!last && [h.ip].concat(h.ips || []).some((ip) => targetKey(ip, h.port) === last);
   }
-  // This device's own IPv4 addresses from ICE host candidates. Chrome hides
-  // them behind mDNS names unless the page has camera/mic permission, so this
-  // often finds nothing; the sweep does not depend on it.
-  function localIps(timeoutMs) {
-    return new Promise((resolve) => {
-      const out = new Set();
-      let pc;
-      try { pc = new RTCPeerConnection({ iceServers: [] }); } catch (e) { resolve([]); return; }
-      const done = () => { try { pc.close(); } catch (e) { /* */ } resolve([...out]); };
-      const t = setTimeout(done, timeoutMs || 600);
-      pc.onicecandidate = (ev) => {
-        if (!ev.candidate) { clearTimeout(t); done(); return; }
-        const m = /(\d{1,3}(?:\.\d{1,3}){3})/.exec(ev.candidate.candidate || '');
-        if (m && isPrivate(m[1])) out.add(m[1]);
-      };
-      pc.createDataChannel('x');
-      pc.createOffer().then((o) => pc.setLocalDescription(o)).catch(() => { clearTimeout(t); done(); });
-    });
-  }
   async function hello(ip, port, timeoutMs, outer) {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), timeoutMs);
@@ -365,7 +343,7 @@
       if (outer) outer.removeEventListener('abort', stop);
     }
   }
-  // opts: { port, seeds: [ip], signal, onFound(host), onProgress(done, total), fallback: true }
+  // opts: { port, seeds: [ip], signal, onFound(host), onProgress(done, total) }
   // Resolves with every host found, one entry per host (a host answering on
   // two addresses is listed once, at the address that answered first).
   async function scan(opts) {
@@ -375,8 +353,8 @@
     const signal = opts.signal;
     const found = new Map(), tried = new Set();
     let total = 0, done = 0, planned = 0;
-    // Report against the work we expect (seeds plus a /24 per known network),
-    // so a quick seed check does not read as "finished".
+    // Report against the work we expect (seeds, then the network sweep), so a
+    // quick seed check does not read as "finished".
     const progress = () => { if (opts.onProgress) opts.onProgress(done, Math.max(total, planned)); };
     const report = (h) => {
       const k = h.name + ':' + h.port;
@@ -403,27 +381,30 @@
     }
     const uniq = (a) => [...new Set(a)];
     const seeds = uniq([].concat(servedByHost ? [location.hostname] : [], opts.seeds || [], recentHosts()));
-    const seedNets = uniq(seeds.filter(isPrivate).map(prefix24)).length;
-    planned = seeds.length + 254 * Math.max(1, seedNets);
+    // The network sweep counts as a tenth of the bar per known address.
+    planned = Math.max(1, seeds.length) * 11;
     // Known addresses first: usually the answer in well under a second.
     await sweep(seeds, 8, 1500);
-    // The apps pass this device's addresses (main.rs); WebRTC usually hides them.
-    const local = uniq((window.MULLION_LOCAL_IPS || []).concat(await localIps(600)));
-    const prefixes = [];
-    const addPrefixes = (ips) => ips.filter(isPrivate).map(prefix24).forEach((p) => { if (!prefixes.includes(p)) prefixes.push(p); });
-    addPrefixes([...found.values()].flatMap((h) => [h.ip].concat(h.ips || [])));
-    addPrefixes(seeds);
-    addPrefixes(local);
-    if (!prefixes.length && opts.fallback !== false) prefixes.push('192.168.1', '192.168.0', '10.0.0');
-    // Now the networks are known, so is the work: re-plan before sweeping.
-    planned = total + 254 * prefixes.length;
-    progress();
-    // Whole /24s, nearest first; a host found on the way may add its other networks.
-    for (let n = 0; n < prefixes.length && !(signal && signal.aborted); n++) {
-      const ips = [];
-      for (let x = 1; x < 255; x++) ips.push(prefixes[n] + '.' + x);
-      await sweep(ips, 48, 900);
-      addPrefixes([...found.values()].flatMap((h) => h.ips || []));
+    // Then the whole network, swept natively: by the app, or by the host
+    // that served this page. Never from here: a page's probe to an empty
+    // address holds a browser socket for over a minute, and 254 of them left
+    // none for Connect (crates/proto/src/nearby.rs).
+    if (!(signal && signal.aborted)) {
+      let more = [];
+      try {
+        if (window.mullionNative && window.mullionNative.nearby) more = await window.mullionNative.nearby();
+        else if (servedByHost) {
+          const r = await fetch(`http://${location.hostname}:${port}/nearby`, { signal, cache: 'no-store', credentials: 'omit' });
+          if (r.ok) more = await r.json();
+        }
+      } catch (e) { /* none found, or stopped */ }
+      for (const h of more || []) {
+        if (signal && signal.aborted) break;
+        if (!h || h.app !== 'mullion' || !isIPv4(h.ip)) continue;
+        if (h.port) knownPorts.set(h.ip, h.port);
+        report(Object.assign({ ms: 0 }, h));
+      }
+      done = total = planned; progress();
     }
     return [...found.values()];
   }

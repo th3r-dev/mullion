@@ -48,42 +48,44 @@ fn windows_data_dir() -> Option<std::path::PathBuf> {
     std::env::var_os("LOCALAPPDATA").map(|d| std::path::PathBuf::from(d).join("Mullion"))
 }
 
-/// This device's private IPv4 addresses, the default-route one first. The
-/// web view's own way of finding them (WebRTC host candidates) is usually
-/// hidden, and without them Nearby can only guess common home networks.
-fn local_ipv4s() -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
-    let mut add = |ip: std::net::IpAddr| {
-        if let std::net::IpAddr::V4(v4) = ip {
-            if v4.is_private() && !out.contains(&v4.to_string()) {
-                out.push(v4.to_string());
-            }
-        }
-    };
-    if let Ok(ip) = local_ip_address::local_ip() {
-        add(ip);
-    }
-    if let Ok(list) = local_ip_address::list_afinet_netifas() {
-        list.into_iter().for_each(|(_, ip)| add(ip));
-    }
-    out
-}
-
 #[component]
 fn App() -> Element {
     // Boot the shared scripts once the shared markup is in the document.
     use_future(move || async move {
         let _ = eval(&format!("window.MULLION_VERSION = {:?};", mullion_proto::version::VERSION)).await;
-        let ips = serde_json::to_string(&local_ipv4s()).unwrap_or_else(|_| "[]".into());
-        let _ = eval(&format!("window.MULLION_LOCAL_IPS = {ips};")).await;
         let _ = eval(RECEIVER_JS).await;
         let _ = eval(UI_JS).await;
         let _ = eval(LAYOUT_JS).await;
     });
 
-    // Desktop: the page's Full screen button fills only the web view (WebView2
-    // does not resize the window), so ui.js asks for the window itself through
-    // window.mullionNative.fullscreen(on), and this makes it borderless full screen.
+    // window.mullionNative, the page's way to native code:
+    // - nearby(): the Nearby sweep (mullion_proto::nearby), which a page
+    //   cannot do itself without starving its own Connect.
+    // - fullscreen(on), desktop only: the page's Full screen button fills only
+    //   the web view (WebView2 does not resize the window), so this makes the
+    //   window itself borderless full screen.
+    use_future(move || async move {
+        let fullscreen = if cfg!(feature = "desktop") { "fullscreen: (on) => dioxus.send({ fullscreen: !!on })," } else { "" };
+        let mut bridge = eval(&format!(
+            "const waiting = [];
+             window.mullionNative = {{ {fullscreen} nearby: () => new Promise((r) => {{ waiting.push(r); dioxus.send({{ nearby: true }}); }}) }};
+             for (;;) {{ const found = await dioxus.recv(); waiting.splice(0).forEach((r) => r(found)); }}"
+        ));
+        while let Ok(msg) = bridge.recv::<serde_json::Value>().await {
+            if msg["nearby"] == true {
+                let (tx, rx) = futures_channel::oneshot::channel();
+                std::thread::spawn(move || {
+                    let _ = tx.send(mullion_proto::nearby::sweep(47100));
+                });
+                let _ = bridge.send(rx.await.unwrap_or_default());
+            }
+            #[cfg(feature = "desktop")]
+            if let Some(on) = msg["fullscreen"].as_bool() {
+                dioxus::desktop::window().set_fullscreen(on);
+            }
+        }
+    });
+
     #[cfg(feature = "desktop")]
     {
         // Closing the window: the page's pagehide does not fire when a native
@@ -100,17 +102,6 @@ fn App() -> Element {
                     win.set_close_behavior(dioxus::desktop::WindowCloseBehaviour::WindowCloses);
                     win.close();
                 });
-            }
-        });
-
-        let win = dioxus::desktop::window();
-        use_future(move || {
-            let win = win.clone();
-            async move {
-                let mut bridge = eval("window.mullionNative = { fullscreen: (on) => dioxus.send(!!on) }; await new Promise(() => {});");
-                while let Ok(on) = bridge.recv::<bool>().await {
-                    win.set_fullscreen(on);
-                }
             }
         });
     }

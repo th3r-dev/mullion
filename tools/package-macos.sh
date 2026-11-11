@@ -6,9 +6,14 @@
 #       -> dist/macos/Mullion.app, dist/Mullion-<version>.pkg (ad-hoc signed)
 #
 # Signing (optional):
-#   MULLION_SIGN_ID="Apple Development: Name (TEAMID)" tools/package-macos.sh
+#   MULLION_SIGN_ID="Mullion Code Signing" tools/package-macos.sh
 #       A stable signature: macOS keeps Screen Recording permission across
-#       rebuilds (with the ad-hoc default it asks again after every build).
+#       rebuilds and updates. With the ad-hoc default the app's identity is the
+#       hash of this exact build, so every update asks again (and the old
+#       "Mullion" entry in System Settings no longer applies).
+#       Any certificate in the keychain works, a self-signed one too (CI
+#       imports one from the MACOS_SIGN_P12 secret: release-beta.yml). Keep the
+#       same one: a new certificate is a new identity to macOS.
 #   MULLION_INSTALLER_ID="Developer ID Installer: Name (TEAMID)"
 #       Signs the .pkg; with a Developer ID Application identity in
 #       MULLION_SIGN_ID and notarization, it opens on other Macs without
@@ -50,7 +55,9 @@ xattr -cr "$APP" 2>/dev/null || true
 
 echo "==> Signing ($([ "$SIGN_ID" = "-" ] && echo ad-hoc || echo "$SIGN_ID"))"
 sign=(codesign --force --sign "$SIGN_ID" --identifier app.mullion.host)
-if [ "$SIGN_ID" != "-" ]; then sign+=(--options runtime --timestamp); fi
+# Hardened runtime and a timestamp only for Apple-issued identities, which
+# notarization needs; Apple's timestamp server does not serve self-signed ones.
+case "$SIGN_ID" in "Developer ID"* | "Apple "*) sign+=(--options runtime --timestamp) ;; esac
 "${sign[@]}" "$APP"
 codesign --verify --strict --verbose=1 "$APP"
 
