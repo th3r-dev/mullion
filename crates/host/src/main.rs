@@ -6,20 +6,14 @@
 //! `~/Library/Logs/Mullion`, settings from
 //! `~/Library/Application Support/Mullion/mullion.env`).
 
-mod config;
 #[cfg(target_os = "macos")]
 mod menubar;
-mod platform;
-mod probe_page;
-mod pairing;
-mod screens;
-mod session;
-mod signaling;
-mod timing;
 #[cfg(target_os = "macos")]
 mod update;
 #[cfg(target_os = "macos")]
 mod viewer;
+
+use mullion_host::{config, pairing, platform, session, timing};
 
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
@@ -222,19 +216,7 @@ fn run(args: Args, app: Option<AppPaths>) -> Result<()> {
     let log = Arc::new(timing::TimingLog::new(Some(&log_path))?);
     info!("timing log: {}", log_path.display());
 
-    // Advertise every usable local IP so loopback and LAN receivers both connect.
-    let mut ips: Vec<IpAddr> = vec![];
-    if let Ok(ip) = local_ip_address::local_ip() {
-        ips.push(ip);
-    }
-    if let Ok(list) = local_ip_address::list_afinet_netifas() {
-        for (_, ip) in list {
-            if ip.is_ipv4() && !ips.contains(&ip) && !ip.is_loopback() && !ip.is_unspecified() {
-                ips.push(ip);
-            }
-        }
-    }
-    ips.push("127.0.0.1".parse().unwrap());
+    let ips = mullion_host::lan_ips();
 
     let pipeline = platform::PipelineConfig {
         width: sw.width,
@@ -246,69 +228,54 @@ fn run(args: Args, app: Option<AppPaths>) -> Result<()> {
         ..Default::default()
     };
     platform::set_arrange_enabled(sw.arrange);
-    let (handle, session_thread) =
-        session::start(
-            session::SessionConfig {
-                advertise_ips: ips.clone(),
-                pipeline,
-                extend: sw.extend,
-                display_grace: sw.display_grace(),
-                multi_session: sw.multi_session,
-            },
-            platform,
-            log.clone(),
-        )?;
 
     // Pairing: receivers must be let in with a code shown here. Kept with the
     // app's other files, also when run from a terminal.
-    let pairing = Arc::new(pairing::Pairing::load(
-        Some(AppPaths::new().support.join("paired.json")),
-        Box::new({
-            let in_app = app.is_some();
-            move |n| match n {
-                pairing::Notice::Code { name, code } => {
-                    println!("Pairing code for {name}: {} {}", &code[..3], &code[3..]);
-                    #[cfg(target_os = "macos")]
-                    if in_app {
-                        let p = PAIRING.get().cloned();
-                        menubar::show_pair_code(name, code, Box::new(move || if let Some(p) = &p { p.cancel() }));
-                    }
+    let in_app = app.is_some();
+    let started = mullion_host::start(mullion_host::HostOptions {
+        platform,
+        addr: SocketAddr::new(args.bind, sw.port),
+        web_port: sw.web_port,
+        host_name: host_name.clone(),
+        kind: "Mac",
+        session: session::SessionConfig {
+            advertise_ips: ips,
+            pipeline,
+            extend: sw.extend,
+            display_grace: sw.display_grace(),
+            multi_session: sw.multi_session,
+        },
+        config: serde_json::to_value(&sw)?,
+        log: log.clone(),
+        pairing_store: AppPaths::new().support.join("paired.json"),
+        notify: Box::new(move |n| match n {
+            pairing::Notice::Code { name, code } => {
+                println!("Pairing code for {name}: {} {}", &code[..3], &code[3..]);
+                #[cfg(target_os = "macos")]
+                if in_app {
+                    let p = PAIRING.get().cloned();
+                    menubar::show_pair_code(name, code, Box::new(move || if let Some(p) = &p { p.cancel() }));
                 }
-                pairing::Notice::Closed => {
-                    #[cfg(target_os = "macos")]
-                    if in_app {
-                        menubar::close_pair_code();
-                    }
+            }
+            pairing::Notice::Closed => {
+                #[cfg(target_os = "macos")]
+                if in_app {
+                    menubar::close_pair_code();
                 }
             }
         }),
-    ));
-    let _ = PAIRING.set(pairing.clone());
-
-    let addr = SocketAddr::new(args.bind, sw.port);
-    let shared = Arc::new(session::SharedHandle(Mutex::new(handle)));
-    let signaling = match signaling::Signaling::bind(addr, shared.clone(), host_name.clone()) {
-        Ok(s) => s,
+    });
+    let mullion_host::Host { shared, pairing, address, session_thread } = match started {
+        Ok(h) => h,
         #[cfg(target_os = "macos")]
-        Err(e) if app.is_some() => menubar::fatal(
+        Err(e) if in_app && e.downcast_ref::<mullion_host::PortInUse>().is_some() => menubar::fatal(
             "Mullion is already running",
             &format!("Port {} is in use, most likely by another Mullion (the app or tools/run-host.sh). Quit that one, then open Mullion again.\n\n{e:#}", sw.port),
         ),
         Err(e) => return Err(e),
-    }
-        .with_config(serde_json::to_value(&sw)?)
-        .with_lan_ips(ips.iter().filter(|ip| !ip.is_loopback()).map(|ip| ip.to_string()).collect())
-        .with_pairing(pairing.clone())
-        .with_web_port(sw.web_port);
-    let lan = ips.first().map(|ip| ip.to_string()).unwrap_or_else(|| "127.0.0.1".into());
-    // What to type in a browser: the bare address when port 80 is ours,
-    // otherwise address:port, so whatever is shown or copied opens Mullion.
-    let address = match signaling.web_port() {
-        Some(80) => lan.clone(),
-        Some(p) => format!("{lan}:{p}"),
-        None => format!("{lan}:{}", sw.port),
     };
-    info!("signaling on http://{lan}:{}/offer  receiver: http://{address}/  config: /config", sw.port);
+    let _ = PAIRING.set(pairing.clone());
+    info!("signaling on port {}  receiver: http://{address}/  config: /config", sw.port);
     println!("Mullion host {host_name}: open http://{address} on the tablet.");
 
     let log_for_exit = log.clone();
@@ -318,11 +285,9 @@ fn run(args: Args, app: Option<AppPaths>) -> Result<()> {
         std::process::exit(0);
     });
 
-    std::thread::spawn(move || signaling.run());
-
     #[cfg(target_os = "macos")]
     if let Some(a) = &app {
-        use signaling::OfferHandler;
+        use mullion_host::signaling::OfferHandler;
         let first_launch = !a.support.join("welcomed").exists();
         let _ = std::fs::create_dir_all(&a.support);
         let _ = std::fs::write(a.support.join("welcomed"), b"");
