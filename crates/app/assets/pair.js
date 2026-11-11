@@ -77,8 +77,27 @@
   function store(cred) { try { localStorage.setItem(KEY + cred.host_id, JSON.stringify(cred)); } catch (e) { /* */ } }
   function forget(hostId) { try { localStorage.removeItem(KEY + hostId); } catch (e) { /* */ } }
 
+  // A request to a Mullion host. In the apps it goes through native code
+  // (window.mullionNative.http, app main.rs): the Android page is https and its
+  // WebView blocks http:// requests as mixed content. In a browser, fetch.
+  // Resolves to a Response either way; network failures reject with TypeError
+  // and an aborted signal with AbortError, as fetch does.
+  async function hostFetch(url, init) {
+    init = init || {};
+    const http = window.mullionNative && window.mullionNative.http;
+    if (!http) return fetch(url, Object.assign({ cache: 'no-store', credentials: 'omit' }, init));
+    const abortErr = () => new DOMException('The request was aborted.', 'AbortError');
+    const call = http(init.method || 'GET', url, init.headers || {}, init.body || '');
+    const s = init.signal;
+    const r = await (s ? Promise.race([call, new Promise((_, no) => { if (s.aborted) no(abortErr()); s.addEventListener('abort', () => no(abortErr())); })]) : call);
+    if (r.error) throw new TypeError(r.error);
+    const empty = [101, 103, 204, 205, 304].includes(r.status);
+    return new Response(empty ? null : r.body, { status: r.status });
+  }
+  window.mullionFetch = hostFetch;
+
   async function post(url, body) {
-    const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), cache: 'no-store', credentials: 'omit' });
+    const r = await hostFetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     let data = null;
     try { data = await r.json(); } catch (e) { /* plain text error */ }
     return { status: r.status, data };

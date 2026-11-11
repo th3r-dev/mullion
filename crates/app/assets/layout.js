@@ -71,7 +71,7 @@
 
   async function load(first) {
     try {
-      const r = await fetch(baseUrl(hostIp) + '/screens', { cache: 'no-store', headers: mullion.authHeaders(hostIp, 'GET', '/screens') });
+      const r = await mullionFetch(baseUrl(hostIp) + '/screens', { cache: 'no-store', headers: mullion.authHeaders(hostIp, 'GET', '/screens') });
       if (r.status === 401) { needPairing(); return; }
       if (!r.ok) throw new Error((await r.text()).trim() || r.status);
       const v = await r.json();
@@ -375,7 +375,7 @@
     board.setAttribute('aria-busy', 'true');
     try {
       const body = JSON.stringify({ cells });
-      const r = await fetch(baseUrl(hostIp) + '/screens/layout', {
+      const r = await mullionFetch(baseUrl(hostIp) + '/screens/layout', {
         method: 'POST', headers: Object.assign({ 'Content-Type': 'application/json' }, mullion.authHeaders(hostIp, 'POST', '/screens/layout', body)), body,
       });
       const text = await r.text();

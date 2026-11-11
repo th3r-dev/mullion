@@ -202,7 +202,7 @@
   }
 
   async function postJSON(url, body) {
-    const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), cache: 'no-store', credentials: 'omit' });
+    const r = await mullionFetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     let data = null;
     try { data = await r.json(); } catch (e) { /* plain text */ }
     return { status: r.status, data };
@@ -289,7 +289,7 @@
       const body = auth
         ? { device: auth.cred.device, sealed: mullionPair.sealOffer(auth.cred, auth.nonce, plain) }
         : Object.assign({ device_id: deviceId() }, plain);
-      const resp = await fetch(`http://${hostIp}:${port}/offer`, {
+      const resp = await mullionFetch(`http://${hostIp}:${port}/offer`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body), signal: ctrl.signal,
       });
@@ -395,7 +395,7 @@
     if (outer) outer.addEventListener('abort', stop);
     const t0 = performance.now();
     try {
-      const r = await fetch(`http://${ip}:${port}/hello`, { signal: ctrl.signal, cache: 'no-store', credentials: 'omit' });
+      const r = await mullionFetch(`http://${ip}:${port}/hello`, { signal: ctrl.signal });
       if (!r.ok) return null;
       const h = await r.json();
       if (!h || h.app !== 'mullion') return null;

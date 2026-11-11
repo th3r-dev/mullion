@@ -21,6 +21,25 @@ const LAYOUT_JS: &str = include_str!("../assets/layout.js");
 const UI_CSS: &str = include_str!("../assets/ui.css");
 const UI_HTML: &str = include_str!("../assets/ui.html");
 
+/// Which app this is, for the page's update check (ui.js): it offers this
+/// platform's file from the newest GitHub release.
+const APP_PLATFORM: &str = if cfg!(target_os = "android") {
+    "android"
+} else if cfg!(windows) {
+    "windows"
+} else {
+    "desktop"
+};
+
+/// Run `f` on its own thread and wait for it without blocking the UI.
+async fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> T {
+    let (tx, rx) = futures_channel::oneshot::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(f());
+    });
+    rx.await.expect("the worker thread sends before it ends")
+}
+
 fn main() {
     // Desktop (the Windows viewer): our title, not "Dioxus App". The window
     // icon comes from the .exe's icon resource (build.rs). Closing the window
@@ -54,7 +73,7 @@ fn windows_data_dir() -> Option<std::path::PathBuf> {
 fn App() -> Element {
     // Boot the shared scripts once the shared markup is in the document.
     use_future(move || async move {
-        let _ = eval(&format!("window.MULLION_VERSION = {:?};", mullion_proto::version::VERSION)).await;
+        let _ = eval(&format!("window.MULLION_VERSION = {:?}; window.MULLION_APP = {:?};", mullion_proto::version::VERSION, APP_PLATFORM)).await;
         let _ = eval(NOBLE_JS).await;
         let _ = eval(PAIR_JS).await;
         let _ = eval(RECEIVER_JS).await;
@@ -65,23 +84,54 @@ fn App() -> Element {
     // window.mullionNative, the page's way to native code:
     // - nearby(): the Nearby sweep (mullion_proto::nearby), which a page
     //   cannot do itself without starving its own Connect.
+    // - http(method, url, headers, body): a request to a Mullion host
+    //   (mullion_proto::lanhttp). The Android page is https://dioxus.index.html
+    //   and its WebView blocks every http:// request as mixed content, so the
+    //   page cannot reach a host with fetch.
     // - fullscreen(on), desktop only: the page's Full screen button fills only
     //   the web view (WebView2 does not resize the window), so this makes the
     //   window itself borderless full screen.
+    // Replies are tagged, and slow work runs on its own thread, so one sweep
+    // never holds up a request or the full screen toggle.
     use_future(move || async move {
         let fullscreen = if cfg!(feature = "desktop") { "fullscreen: (on) => dioxus.send({ fullscreen: !!on })," } else { "" };
-        let mut bridge = eval(&format!(
-            "const waiting = [];
-             window.mullionNative = {{ {fullscreen} nearby: () => new Promise((r) => {{ waiting.push(r); dioxus.send({{ nearby: true }}); }}) }};
-             for (;;) {{ const found = await dioxus.recv(); waiting.splice(0).forEach((r) => r(found)); }}"
+        let bridge = eval(&format!(
+            "const nearby = [], pending = new Map(); let next = 1;
+             window.mullionNative = {{ {fullscreen}
+               nearby: () => new Promise((r) => {{ if (nearby.push(r) === 1) dioxus.send({{ nearby: true }}); }}),
+               http: (method, url, headers, body) => new Promise((r) => {{ const id = next++; pending.set(id, r); dioxus.send({{ http: {{ id, method, url, headers: headers || {{}}, body: body || '' }} }}); }}),
+             }};
+             for (;;) {{
+               const m = await dioxus.recv();
+               if (m.kind === 'nearby') nearby.splice(0).forEach((r) => r(m.found));
+               else if (m.kind === 'http') {{ const r = pending.get(m.id); pending.delete(m.id); if (r) r(m); }}
+             }}"
         ));
-        while let Ok(msg) = bridge.recv::<serde_json::Value>().await {
+        let mut rx = bridge;
+        while let Ok(msg) = rx.recv::<serde_json::Value>().await {
             if msg["nearby"] == true {
-                let (tx, rx) = futures_channel::oneshot::channel();
-                std::thread::spawn(move || {
-                    let _ = tx.send(mullion_proto::nearby::sweep(47100));
+                spawn(async move {
+                    let found = blocking(|| mullion_proto::nearby::sweep(47100)).await;
+                    let _ = bridge.send(serde_json::json!({ "kind": "nearby", "found": found }));
                 });
-                let _ = bridge.send(rx.await.unwrap_or_default());
+            }
+            if let Some(req) = msg.get("http").cloned() {
+                spawn(async move {
+                    let id = req["id"].clone();
+                    let reply = blocking(move || {
+                        let s = |k: &str| req[k].as_str().unwrap_or("").to_string();
+                        let headers: Vec<(String, String)> = req["headers"]
+                            .as_object()
+                            .map(|m| m.iter().filter_map(|(k, v)| v.as_str().map(|v| (k.clone(), v.to_string()))).collect())
+                            .unwrap_or_default();
+                        mullion_proto::lanhttp::request(&s("method"), &s("url"), &headers, s("body").as_bytes(), std::time::Duration::from_secs(8))
+                    })
+                    .await;
+                    let _ = bridge.send(match reply {
+                        Ok(r) => serde_json::json!({ "kind": "http", "id": id, "status": r.status, "body": r.body }),
+                        Err(e) => serde_json::json!({ "kind": "http", "id": id, "error": e }),
+                    });
+                });
             }
             #[cfg(feature = "desktop")]
             if let Some(on) = msg["fullscreen"].as_bool() {
