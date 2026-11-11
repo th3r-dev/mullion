@@ -77,7 +77,7 @@ class ShareService : Service() {
             .setContentText("Anyone you paired can see it.")
             .setOngoing(true)
             .setContentIntent(open)
-            .addAction(Notification.Action.Builder(null as Icon?, "Stop sharing", stop).build())
+            .addAction(Notification.Action.Builder(Icon.createWithResource(this, android.R.drawable.ic_menu_close_clear_cancel), "Stop sharing", stop).build())
             .build()
         if (Build.VERSION.SDK_INT >= 29) startForeground(1, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION) else startForeground(1, n)
     }
