@@ -5,6 +5,9 @@
 #   tools/package-macos.sh
 #       -> dist/macos/Mullion.app, dist/Mullion-<version>.pkg (ad-hoc signed)
 #
+# In CI a pull request rebuilds this package only when a file it builds from
+# changed (tools/ci/changed-jobs.sh): add new inputs there too.
+#
 # Signing (optional):
 #   MULLION_SIGN_ID="Mullion Code Signing" tools/package-macos.sh
 #       A stable signature: macOS keeps Screen Recording permission across
