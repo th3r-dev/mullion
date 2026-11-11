@@ -201,6 +201,41 @@
     return caps;
   }
 
+  async function postJSON(url, body) {
+    const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), cache: 'no-store', credentials: 'omit' });
+    let data = null;
+    try { data = await r.json(); } catch (e) { /* plain text */ }
+    return { status: r.status, data };
+  }
+
+  // A paired host (one that names itself with host_id) takes only sealed
+  // offers (pair.js). Pair first if this device has no credential for it,
+  // then get the one-time challenge the offer is sealed with. Resolves to
+  // { cred, nonce }, null for an older host (plain offer), or false when the
+  // person cancelled pairing.
+  async function prepareAuth(hostIp, port, opts) {
+    const base = `http://${hostIp}:${port}`;
+    const h = await hello(hostIp, port, 3000);
+    if (!h) throw new Error(`Can't reach ${hostIp}. Check that Mullion is running on it.`);
+    if (!h.host_id || !window.mullionPair) return null;
+    let cred = mullionPair.load(h.host_id);
+    for (let round = 0; round < 2; round++) {
+      if (!cred) {
+        if (!opts.askCode) throw new Error('Pair this device with the Mac first.');
+        setStatus('pairing');
+        cred = await mullionPair.pair(base, { name: opts.name || deviceName(), hostName: h.name, askCode: opts.askCode });
+        if (!cred) return false;
+        setStatus('connecting');
+      }
+      const c = await postJSON(base + '/challenge', { device: cred.device });
+      if (c.status === 200 && c.data && c.data.nonce) return { cred, nonce: c.data.nonce };
+      // The Mac forgot this device: pair again, once.
+      if (c.status === 401) { mullionPair.forget(h.host_id); cred = null; continue; }
+      throw new Error(`${h.name || hostIp} did not answer.`);
+    }
+    throw new Error('Pairing did not finish.');
+  }
+
   async function connect(hostIp, videoEl, opts) {
     opts = opts || {};
     const port = opts.port || portFor(hostIp);
@@ -210,6 +245,14 @@
     state.g2g = []; state.samples = []; state.offset = null; state.presented = 0; state.decoded = 0; state.decodeFail = 0; state.dropped = 0; state.lastFrameTs = 0;
     state.probe = null; state.stripMisses = 0; state.nextSampleAt = 0;
     setStatus('connecting');
+    let auth;
+    try {
+      auth = await prepareAuth(hostIp, port, opts);
+    } catch (e) {
+      setStatus('error', { error: String(e.message || e) });
+      return;
+    }
+    if (auth === false) { state.error = null; setStatus('idle'); return; }
     const pc = new RTCPeerConnection({ iceServers: [] });
     state.pc = pc;
     pc.addTransceiver('video', { direction: 'recvonly' });
@@ -242,15 +285,28 @@
     try {
       const ctrl = new AbortController();
       const to = setTimeout(() => ctrl.abort(), 5000);
+      const plain = { type: 'offer', sdp: pc.localDescription.sdp, mode, device_name: opts.name || deviceName() };
+      const body = auth
+        ? { device: auth.cred.device, sealed: mullionPair.sealOffer(auth.cred, auth.nonce, plain) }
+        : Object.assign({ device_id: deviceId() }, plain);
       const resp = await fetch(`http://${hostIp}:${port}/offer`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'offer', sdp: pc.localDescription.sdp, mode, device_id: deviceId(), device_name: opts.name || deviceName() }), signal: ctrl.signal,
+        body: JSON.stringify(body), signal: ctrl.signal,
       });
       clearTimeout(to);
+      if (resp.status === 401) {
+        let j = {};
+        try { j = await resp.json(); } catch (e) { /* */ }
+        if (j.pair && auth) mullionPair.forget(auth.cred.host_id);
+        throw new Error(j.error || 'Pair this device with the Mac first.');
+      }
       if (!resp.ok) throw new Error(`${resp.status} ${await resp.text()}`);
-      answer = await resp.json();
+      answer = auth ? mullionPair.openAnswer(auth.cred, auth.nonce, (await resp.json()).sealed) : await resp.json();
     } catch (e) {
-      setStatus('error', { error: `Can't reach ${hostIp}. ${e.name === 'AbortError' ? 'No answer in 5 s.' : e.message}` });
+      // Network failures read as "can't reach"; the host's or pairing's own reasons as they are.
+      const why = e.name === 'AbortError' ? `Can't reach ${hostIp}. No answer in 5 s.`
+        : e instanceof TypeError ? `Can't reach ${hostIp}. ${e.message}` : String(e.message || e);
+      setStatus('error', { error: why });
       disconnect();
       return;
     }
@@ -288,6 +344,15 @@
   // Port of each host we have heard from, so a host on a non-default port is
   // dialled where it answered.
   const knownPorts = new Map();
+  // host_id of each host heard from, to find this device's pairing for it.
+  const hostIds = new Map();
+  // X-Mullion-Auth for a request to a paired host (layout.js); none when this
+  // device has no pairing for it (this Mac's own page works without one).
+  function authHeaders(ip, method, path, body) {
+    const id = hostIds.get(ip);
+    const cred = id && window.mullionPair && mullionPair.load(id);
+    return cred ? { 'X-Mullion-Auth': mullionPair.signed(cred, method, path, body || '') } : {};
+  }
   function portFor(ip) {
     if (knownPorts.has(ip)) return knownPorts.get(ip);
     if (/^https?:$/.test(location.protocol) && location.hostname === ip) {
@@ -335,6 +400,7 @@
       const h = await r.json();
       if (!h || h.app !== 'mullion') return null;
       knownPorts.set(ip, port);
+      if (h.host_id) hostIds.set(ip, h.host_id);
       return Object.assign({}, h, { ip, port, ms: Math.round(performance.now() - t0) });
     } catch (e) {
       return null;
@@ -410,7 +476,7 @@
   }
 
   window.mullion = { connect, disconnect, leave, stats: snapshot, onStatus: (fn) => state.listeners.push(fn), decodeStrip, unwrapMs, deviceId, deviceName, setDeviceName,
-    scan, hello, recentHosts, rememberHost, isLastUsed, portFor, parseTarget,
+    scan, hello, recentHosts, rememberHost, isLastUsed, portFor, parseTarget, authHeaders,
     // UI work without a host: feed a fake stream and status through the real paths.
     _simulate(status, videoEl, hostName) {
       if (videoEl && !videoEl.srcObject) {

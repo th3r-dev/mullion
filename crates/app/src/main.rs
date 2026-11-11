@@ -13,6 +13,8 @@
 use dioxus::document::eval;
 use dioxus::prelude::*;
 
+const NOBLE_JS: &str = include_str!("../assets/vendor/noble.js");
+const PAIR_JS: &str = include_str!("../assets/pair.js");
 const RECEIVER_JS: &str = include_str!("../assets/receiver.js");
 const UI_JS: &str = include_str!("../assets/ui.js");
 const LAYOUT_JS: &str = include_str!("../assets/layout.js");
@@ -53,6 +55,8 @@ fn App() -> Element {
     // Boot the shared scripts once the shared markup is in the document.
     use_future(move || async move {
         let _ = eval(&format!("window.MULLION_VERSION = {:?};", mullion_proto::version::VERSION)).await;
+        let _ = eval(NOBLE_JS).await;
+        let _ = eval(PAIR_JS).await;
         let _ = eval(RECEIVER_JS).await;
         let _ = eval(UI_JS).await;
         let _ = eval(LAYOUT_JS).await;

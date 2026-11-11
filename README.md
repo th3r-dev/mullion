@@ -98,6 +98,23 @@ hosts show up at once.
 
 ![Nearby hosts](docs/ui/nearby.png)
 
+## Pairing and encryption
+
+The first time a device connects, the Mac shows a 6-digit code and the
+device asks for it. The code never goes over the network: both sides run
+SPAKE2 with it, so someone listening learns nothing they could test guesses
+against, and a wrong code three times ends the attempt. The device then keeps
+its own secret for that Mac, and connects without a code from then on.
+
+Every connection after that is sealed with the device's secret and a
+one-time challenge from the Mac, both ways (ChaCha20-Poly1305). Nobody else on
+the network can start a stream, replay an offer, or read or change the
+setup, which carries the keys of the video's own encryption (DTLS-SRTP).
+The layout map takes requests signed with the same secret.
+
+To make every device pair again, choose Forget Paired Devices… in the menu.
+The protocol is in `crates/host/src/pairing.rs` and `crates/app/assets/pair.js`.
+
 ## Arranging screens
 
 **Screens** (toolbar while streaming, or **Arrange screens** on the setup card)

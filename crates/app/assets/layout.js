@@ -61,11 +61,18 @@
   scrim.addEventListener('click', close);
   document.addEventListener('keydown', (e) => { if (opened && e.key === 'Escape') close(); });
 
+  // The Mac lets only paired devices see or move its screens.
+  function needPairing() {
+    if (!opened) return;
+    subEl.textContent = '';
+    hint(`Connect to ${hostIp} first. The Mac shows a code to pair this device, then its screens open here.`, true);
+  }
   function hint(text, err) { hintEl.textContent = text; hintEl.classList.toggle('err', !!err); }
 
   async function load(first) {
     try {
-      const r = await fetch(baseUrl(hostIp) + '/screens', { cache: 'no-store' });
+      const r = await fetch(baseUrl(hostIp) + '/screens', { cache: 'no-store', headers: mullion.authHeaders(hostIp, 'GET', '/screens') });
+      if (r.status === 401) { needPairing(); return; }
       if (!r.ok) throw new Error((await r.text()).trim() || r.status);
       const v = await r.json();
       if (!opened || drag || busy) return;
@@ -367,8 +374,9 @@
     busy = true;
     board.setAttribute('aria-busy', 'true');
     try {
+      const body = JSON.stringify({ cells });
       const r = await fetch(baseUrl(hostIp) + '/screens/layout', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cells }),
+        method: 'POST', headers: Object.assign({ 'Content-Type': 'application/json' }, mullion.authHeaders(hostIp, 'POST', '/screens/layout', body)), body,
       });
       const text = await r.text();
       if (!r.ok) throw new Error(text.trim() || `HTTP ${r.status}`);

@@ -56,6 +56,14 @@
       <label for="ip">Or enter the address</label>
       <input id="ip" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Address shown by Mullion, e.g. 10.43.77.126">
     </div>
+    <div class="field pair" id="pairBox" hidden>
+      <label for="code" id="codeLabel">Code shown on the Mac</label>
+      <input id="code" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="000 000" aria-describedby="hint">
+      <div class="pair-actions">
+        <button class="primary" id="pairGo" type="button"><span>Pair</span></button>
+        <button class="ghost" id="pairCancel" type="button"><span>Cancel</span></button>
+      </div>
+    </div>
     <button class="primary" id="go" type="button"><svg class="i" aria-hidden="true"><use href="#i-connect"/></svg><span>Connect</span></button>
     <button class="ghost" id="screensSetupBtn" type="button" title="See every screen of the Mac and move them"><svg class="i" aria-hidden="true"><use href="#i-screens"/></svg><span>Arrange screens</span></button>
     <div class="hint" id="hint"></div>

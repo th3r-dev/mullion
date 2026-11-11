@@ -1,0 +1,13 @@
+{
+  "name": "mullion-vendor-crypto",
+  "private": true,
+  "description": "Builds crates/app/assets/vendor/noble.js: the crypto primitives the receiver page needs for pairing (build.sh).",
+  "dependencies": {
+    "@noble/ciphers": "2.4.0",
+    "@noble/curves": "2.4.0",
+    "@noble/hashes": "2.4.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}
