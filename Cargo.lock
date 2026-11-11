@@ -3397,11 +3397,16 @@ dependencies = [
 name = "mullion-app"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "dioxus",
  "futures-channel",
+ "futures-util",
+ "jni 0.21.1",
+ "mullion-host",
  "mullion-proto",
  "serde",
  "serde_json",
+ "tracing",
  "winresource",
 ]
 

@@ -117,6 +117,7 @@ fn platform_name() -> &'static str {
         "macos" => "macOS",
         "windows" => "Windows",
         "linux" => "Linux",
+        "android" => "Android",
         other => other,
     }
 }

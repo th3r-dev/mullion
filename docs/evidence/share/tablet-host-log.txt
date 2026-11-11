@@ -1,0 +1,28 @@
+# Android 15 emulator (arm64, 6 GB), this branch's APK. The app's own receiver connects to the
+# tablet's host over loopback (127.0.0.1:47100), the only path a receiver has into an emulator.
+# /hello on the tablet (adb forward):
+{"app":"mullion","name":"Android tablet","version":"0.1.0","platform":"Android","port":47100,"ips":["10.0.2.16","10.0.2.15"],"extend":false,"receivers":0,"host_id":"0a2fed73…"}
+
+# Encoder (logcat): c2.android.avc.encoder at 1072x1920, level 41, no B-frames; SPS 67 42 c0 29 = Constrained Baseline 4.1
+
+# Host log (logcat, RustStdoutStderr):
+2026-11-11T19:24:00.592651Z  INFO mullion_host::signaling: offer from 127.0.0.1:49212 answered (Mirror)
+2026-11-11T19:24:00.603231Z  INFO mullion_host::session: #1 ice: Checking
+2026-11-11T19:24:00.663609Z  INFO mullion_host::session: #1 ice: Completed
+2026-11-11T19:24:00.671930Z  INFO mullion_host::session: #1 dtls connected
+2026-11-11T19:24:00.671949Z  INFO mullion_host::session: #1 media added: mid=0 kind=Video dir=SendOnly
+2026-11-11T19:24:00.691357Z  INFO mullion_host::session: #1 data channel open: probe
+2026-11-11T19:24:00.691515Z  INFO mullion_host::session: #1 receiver: jitterBufferTarget supported=true value=Some(0.0) ua=…Android 15…
+2026-11-11T19:24:51.725851Z  INFO mullion_host::session: WebRTC media on UDP 10.0.2.15:33062, 10.0.2.16:40905, 127.0.0.1:45173
+
+# Earlier run (first pairing of this receiver):
+INFO mullion_host::pairing: pairing requested by Loopback test
+INFO mullion_host::pairing: paired Loopback test
+
+# Receiver (page) 6 s in: mullion.stats().status = "streaming", video 1072x1920, 36 frames decoded;
+# share sheet: "1 device is watching."
+# Then the emulator's WebView renderer ran out of memory (mmap failed) decoding, in software, a stream of
+# its own screen. A real setup decodes on the Mac.
+
+# Stop sharing: the service ends; the host stays up and refuses offers:
+{"error":"Pair this device with the tablet first.","pair":true}

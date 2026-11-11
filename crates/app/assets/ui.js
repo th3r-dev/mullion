@@ -359,6 +359,54 @@
   // Version, bottom left: the host's when it served this page, the app's in the tablet app.
   if (window.MULLION_VERSION) $('version').textContent = 'Mullion ' + window.MULLION_VERSION;
 
+  // --- Share this screen (Android app): the tablet becomes a host (app share.rs) ---
+  // A Mac connects to it like to any host; the code to pair shows here.
+  if (window.mullionNative && window.mullionNative.share) {
+    const shareBtn = $('shareBtn'), shareBox = $('shareBox'), shareCodeBox = $('shareCodeBox');
+    let viewersTimer = 0, waiting = 0;
+    // Rust's events wait while Android has paused the app (its dialogs, another
+    // app in front) until the page sends something: poke while waiting for
+    // Android's answer and on coming back. While sharing, countViewers does it.
+    const poke = () => window.mullionNative.poke();
+    addEventListener('focus', poke);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) poke(); });
+    const countViewers = async () => {
+      try {
+        const r = await window.mullionFetch('http://127.0.0.1:47100/devices');
+        const n = ((await r.json()).devices || []).length;
+        $('shareViewers').textContent = n === 0 ? 'No one is watching yet.' : n === 1 ? '1 device is watching.' : `${n} devices are watching.`;
+      } catch (e) { $('shareViewers').textContent = ''; }
+    };
+    const showSharing = (on) => {
+      card.classList.toggle('sharing', on); shareBox.hidden = !on; shareCodeBox.hidden = true;
+      clearInterval(viewersTimer);
+      if (on) { countViewers(); viewersTimer = setInterval(countViewers, 2000); }
+    };
+    shareBtn.hidden = false;
+    shareBtn.onclick = () => {
+      hint.textContent = 'Android asks before this screen is shared.'; hint.classList.remove('err');
+      window.mullionNative.share(true, nameEl.value);
+      clearInterval(waiting); waiting = setInterval(poke, 1000);
+    };
+    $('shareStop').onclick = () => window.mullionNative.share(false);
+    $('shareDeny').onclick = () => { window.mullionNative.pairDeny(); shareCodeBox.hidden = true; };
+    addEventListener('mullion-native', (e) => {
+      const m = e.detail;
+      if (m.kind === 'share') {
+        clearInterval(waiting);
+        showSharing(m.state === 'on');
+        if (m.state === 'on') { $('shareAddr').textContent = m.address; hint.textContent = ''; }
+        else { hint.textContent = m.error || ''; hint.classList.toggle('err', !!m.error); }
+      } else if (m.kind === 'pair_code') {
+        $('shareWho').textContent = `${m.name} wants to see this screen. Enter this code there:`;
+        $('shareCode').textContent = `${m.code.slice(0, 3)} ${m.code.slice(3)}`;
+        shareCodeBox.hidden = false;
+      } else if (m.kind === 'pair_closed') {
+        shareCodeBox.hidden = true;
+      }
+    });
+  }
+
   // The Windows and Android apps look for a newer beta on GitHub at start and
   // every 6 hours, and offer this platform's file (Mullion.app has its own
   // updater in the menu bar). The page can call GitHub itself: it is HTTPS.

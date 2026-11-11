@@ -3,7 +3,7 @@
 // (window.MullionNoble) because a page served over http://<LAN IP> is not a
 // secure context and has no crypto.subtle; crypto.getRandomValues works there.
 //
-//   pair(base, { name, askCode })  first time: SPAKE2 with the code the Mac shows
+//   pair(base, { name, hostName, askCode })  first time: SPAKE2 with the code the host shows
 //   load(hostId) / forget(hostId)  the stored credential for a host
 //   sealOffer / openAnswer         the offer and answer, sealed with the device secret
 //   signed(cred, method, path, body)  X-Mullion-Auth header for other requests
@@ -107,9 +107,12 @@
   // and run SPAKE2. askCode({ hostName, error }) resolves to the typed code,
   // or null to give up. Resolves to the stored credential, or null.
   async function pair(base, opts) {
+    // The host is a Mac or, sharing its screen, a tablet: call it by its name.
+    const who = opts.hostName || 'the host';
+    const Who = who[0].toUpperCase() + who.slice(1);
     const s = await post(base + '/pair/start', { name: opts.name });
-    if (s.status === 429) throw new Error('Another device is pairing with this Mac. Try again in a few seconds.');
-    if (s.status !== 200 || !s.data) throw new Error('This Mac did not start pairing.');
+    if (s.status === 429) throw new Error(`Another device is pairing with ${who}. Try again in a few seconds.`);
+    if (s.status !== 200 || !s.data) throw new Error(`${Who} did not start pairing.`);
     const { pairing, host_id: hostId } = s.data;
     let error = '';
     for (;;) {
@@ -128,13 +131,13 @@
       if (c.status === 403) {
         const left = c.data && c.data.left;
         if (!left) throw new Error('Wrong code too many times. Connect again for a new one.');
-        error = `That code is not the one on the Mac. ${left === 1 ? '1 try' : left + ' tries'} left.`;
+        error = `That code is not the one on ${who}. ${left === 1 ? '1 try' : left + ' tries'} left.`;
         continue;
       }
       if (c.status === 410) throw new Error('The code expired. Connect again for a new one.');
       if (c.status !== 200) throw new Error('Pairing failed.');
-      // The Mac proves it knew the code too, so this is the Mac that showed it.
-      if (!sameBytes(unb64(c.data.mac), mac(k.h, 'host'))) throw new Error('This Mac could not prove the code. Pairing stopped.');
+      // The host proves it knew the code too, so this is the host that showed it.
+      if (!sameBytes(unb64(c.data.mac), mac(k.h, 'host'))) throw new Error(`${Who} could not prove the code. Pairing stopped.`);
       const plain = JSON.parse(dec.decode(open(k.s, 'mullion pair seal', c.data.credential)));
       const cred = { host_id: plain.host_id, host_name: plain.host_name, device: plain.device, secret: plain.secret };
       store(cred);

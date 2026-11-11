@@ -116,6 +116,15 @@ button:has(> .i), .links a { display: inline-flex; align-items: center; justify-
 .pair input { font: 600 26px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .25em; text-align: center; font-variant-numeric: tabular-nums; }
 .pair-actions { display: grid; gap: 6px; margin-top: 6px; }
 .hint.err { opacity: 1; }
+/* Share this screen (Android app): while sharing, the card shows only that. */
+.card.sharing > :not(.brand):not(#shareBox):not(#hint) { display: none; }
+.share[hidden], .share-code[hidden] { display: none; }
+.share { display: grid; gap: 10px; }
+.share h2 { margin: 0; }
+.share p { margin: 0; font-size: 14px; line-height: 1.45; }
+.share-code { display: grid; gap: 6px; justify-items: center; padding: 12px; border-radius: 12px; background: color-mix(in srgb, var(--accent) 10%, transparent); text-align: center; }
+.share-code .code { font: 600 34px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .2em; font-variant-numeric: tabular-nums; }
+.share-viewers { opacity: .7; }
 
 /* Project links: bottom-right of the setup screen, quiet until touched.
    They live inside .setup, so they leave with the card and never sit on the video. */
