@@ -24,6 +24,7 @@ fn main() {
 fn App() -> Element {
     // Boot the shared scripts once the shared markup is in the document.
     use_future(move || async move {
+        let _ = eval(&format!("window.MULLION_VERSION = {:?};", mullion_proto::version::VERSION)).await;
         let _ = eval(RECEIVER_JS).await;
         let _ = eval(UI_JS).await;
         let _ = eval(LAYOUT_JS).await;

@@ -1,0 +1,66 @@
+# Beta release: build Mullion.app, package it, publish a GitHub pre-release.
+#
+# Two ways to start it:
+#   - Actions > Beta release > Run workflow (on dev): numbers the beta for you,
+#     <Cargo.toml version>-beta.<run number>, e.g. 0.1.0-beta.12, and tags it.
+#   - Push a tag: git tag v0.1.0-beta.3 && git push origin v0.1.0-beta.3
+#
+# Mullion.app checks these releases for updates (crates/host/src/update.rs);
+# the release needs the .pkg asset attached for "Install Update…" to work.
+name: Beta release
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*-beta.*"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-beta
+  cancel-in-progress: false
+
+jobs:
+  macos:
+    # Apple silicon, like the package (hostArchitectures="arm64").
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the app's build number is the commit count
+
+      - name: Pick the version
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            v="${GITHUB_REF_NAME#v}"
+          else
+            base=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+            v="$base-beta.$GITHUB_RUN_NUMBER"
+          fi
+          case "$v" in *-beta.*) ;; *) echo "::error::$v is not a beta version"; exit 1 ;; esac
+          echo "MULLION_VERSION=$v" >> "$GITHUB_ENV"
+          echo "Version: $v"
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Test
+        run: cargo test -p mullion-proto -p mullion-host
+
+      - name: Package
+        run: tools/package-macos.sh
+
+      - name: Publish pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="v$MULLION_VERSION"
+          gh release create "$tag" "dist/Mullion-$MULLION_VERSION.pkg" \
+            --prerelease --target "$GITHUB_SHA" \
+            --title "Mullion $MULLION_VERSION (beta)" \
+            --generate-notes \
+            --notes "Beta build for Apple silicon Macs (macOS 14 or later). Open the .pkg to install; Mullion.app finds later betas itself (menu bar > Check for Updates…).
+
+          The package is not notarized: if macOS refuses to open a downloaded copy, Control-click it and choose Open."

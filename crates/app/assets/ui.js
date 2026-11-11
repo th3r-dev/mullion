@@ -46,7 +46,20 @@
   const setIcon = (use, name) => use.setAttribute('href', '#i-' + name);
 
   let mode = localStorage.getItem('mullion.mode') || 'mirror';
+  // Viewer mode: the page is in Mullion.app's "Connect to Another Computer…"
+  // window, served by this Mac's own host. That host is not a target: it is
+  // left out of Nearby and refused, so the Mac never streams to itself.
+  const viewer = location.hash === '#viewer';
+  const selfPort = +window.MULLION_HOST_PORT || 0;
+  const selfIps = new Set(['127.0.0.1', 'localhost']);
+  const isSelf = (ip, port) => viewer && port === selfPort && selfIps.has(ip);
+  const selfKnown = viewer && selfPort
+    ? mullion.hello(location.hostname, selfPort, 1500).then((h) => { if (h) (h.ips || []).forEach((ip) => selfIps.add(ip)); })
+    : Promise.resolve();
+  // The host prefills the address the page came from; in viewer mode that is this Mac.
+  if (viewer) ipEl.value = '';
   ipEl.value = ipEl.value || localStorage.getItem('mullion.host') || '';
+  selfKnown.then(() => { const t = mullion.parseTarget(ipEl.value); if (t && isSelf(t.ip, t.port)) ipEl.value = ''; });
   nameEl.value = mullion.deviceName();
 
   // Segmented control: thumb slides with a critically damped spring; the
@@ -116,7 +129,8 @@
 
   function connect() {
     const target = mullion.parseTarget(ipEl.value);
-    if (!target) { hint.textContent = 'Enter the IP shown by Mullion on the Mac.'; hint.classList.add('err'); ipEl.focus(); return; }
+    if (!target) { hint.textContent = 'Enter the address shown by Mullion.'; hint.classList.add('err'); ipEl.focus(); return; }
+    if (isSelf(target.ip, target.port)) { hint.textContent = "That's this Mac. Enter the address of another computer."; hint.classList.add('err'); ipEl.focus(); return; }
     const ip = target.ip;
     localStorage.setItem('mullion.host', ipEl.value.trim());
     mullion.setDeviceName(nameEl.value);
@@ -149,6 +163,7 @@
     r.btn.setAttribute('aria-label', `${h.name}, ${hostMeta(h)}. Connect.`);
   }
   function showHost(h) {
+    if ([h.ip].concat(h.ips || []).some((ip) => isSelf(ip, h.port))) return;
     const k = h.name + ':' + h.port;
     const have = rows.get(k);
     if (have) { have.host = h; have.stale = false; paintRow(have); return; }
@@ -193,7 +208,7 @@
     nearbyEmpty.textContent = '';
     nearbyStatus.textContent = 'Looking on this network';
     const typed = mullion.parseTarget(ipEl.value);
-    const list = await mullion.scan({
+    await mullion.scan({
       signal: ctl.signal,
       seeds: typed ? [typed.ip] : [],
       port: typed && typed.port !== 47100 ? typed.port : undefined,
@@ -209,8 +224,9 @@
       if (!r.stale) continue;
       rows.delete(k); r.appear.to(0); setTimeout(() => r.li.remove(), 260);
     }
-    nearbyStatus.textContent = list.length ? plural(list.length, 'found', 'found') : '';
-    if (!list.length) nearbyEmpty.textContent = 'No Mac found on this network. Open Mullion on the Mac, or type the IP it shows.';
+    // Count the rows shown: in viewer mode the scan also finds this Mac, which is not listed.
+    nearbyStatus.textContent = rows.size ? plural(rows.size, 'found', 'found') : '';
+    if (!rows.size) nearbyEmpty.textContent = 'No computer found on this network. Open Mullion on it, or enter the address it shows.';
   }
   scanBtn.addEventListener('click', runScan);
 
@@ -224,7 +240,7 @@
     setIcon(fsIcon, on ? 'exit-fullscreen' : 'fullscreen');
   }
   // Layout map (layout.js): from the toolbar while streaming, or from the
-  // setup card with the IP typed in.
+  // setup card with the address entered.
   screensBtn.addEventListener('click', () => {
     const ip = mullion.stats().hostIp || ipEl.value.trim();
     if (ip) window.mullionLayout.open(ip);
@@ -232,7 +248,7 @@
   screensSetupBtn.addEventListener('click', () => {
     const target = mullion.parseTarget(ipEl.value);
     const ip = target && target.ip;
-    if (!ip) { hint.textContent = 'Enter the IP shown by Mullion on the Mac.'; hint.classList.add('err'); ipEl.focus(); return; }
+    if (!ip) { hint.textContent = 'Enter the address shown by Mullion.'; hint.classList.add('err'); ipEl.focus(); return; }
     hint.classList.remove('err'); hint.textContent = '';
     localStorage.setItem('mullion.host', ipEl.value.trim());
     window.mullionLayout.open(ip);
@@ -296,7 +312,10 @@
   const q = new URLSearchParams(location.search);
   if (q.get('host')) ipEl.value = q.get('host');
   if (q.get('auto') === '1' && ipEl.value) connect();
-  else runScan();
+  else selfKnown.then(runScan);
+
+  // Version, bottom left: the host's when it served this page, the app's in the tablet app.
+  if (window.MULLION_VERSION) $('version').textContent = 'Mullion ' + window.MULLION_VERSION;
 
   // Shared with layout.js so every surface moves on the same spring.
   window.mullionUI = { spring, toast };

@@ -123,6 +123,11 @@ button:has(> .i), .links a { display: inline-flex; align-items: center; justify-
 .links a:active { transform: scale(0.97); }
 .links a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .links .i { width: 16px; height: 16px; }
+/* Version, bottom left, opposite the links; same type, quieter. */
+.version { position: fixed; left: max(16px, env(safe-area-inset-left)); bottom: max(14px, env(safe-area-inset-bottom));
+  margin: 0; padding: 6px 10px; color: var(--ink); opacity: .55; font-size: 13px; font-weight: 600;
+  letter-spacing: .01em; font-variant-numeric: tabular-nums; user-select: text; }
+.version:empty { display: none; }
 /* GitHub's sponsor heart colour; a non-text mark (4.7:1 light, 5.9:1 dark on --paper). */
 .links .heart { color: #BF3989; }
 @media (prefers-color-scheme: dark) { .links .heart { color: #E85AAD; } }

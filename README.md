@@ -88,7 +88,8 @@ own; `/config` shows the live switches.
 ## Finding the Mac
 
 The setup card lists Mullion hosts on the network under **Nearby**; tap one to
-connect. Typing the IP still works, with a port when it is not 47100
+connect. Entering the address still works: what Copy Address puts on the
+clipboard, a pasted `http://10.0.0.5/`, or a port when it is not 47100
 (`10.0.0.5:47199`). The receiver asks `GET /hello` on, in order: the host that
 served the page, hosts used before, every address of their /24 networks and of
 this device's own, then common home ranges if it knows nothing else. Browsers

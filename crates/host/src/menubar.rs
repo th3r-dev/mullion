@@ -2,10 +2,13 @@
 //!
 //! When the host runs from inside an app bundle (or with `--menu-bar`), the
 //! main thread runs AppKit instead of waiting on the session thread. There is
-//! no Dock icon (LSUIElement); a status item shows the two-pane glyph, and its
-//! menu is rebuilt each time it opens:
+//! no Dock icon (LSUIElement); a status item shows the laptop-and-tablet glyph,
+//! dimmed while no device is connected (checked every 2 s), and its menu is
+//! rebuilt each time it opens:
 //!
 //! ```text
+//! Install Update 0.1.0-beta.8…    (only when GitHub has a newer release)
+//! ─────
 //! Mullion on DAISY-MAC
 //! Tablets connect to 10.43.77.126
 //! Copy Address                     ⌘C
@@ -14,10 +17,13 @@
 //!     SM-X710 · Extend
 //! Mullion Windows PC leaves in 21 s
 //! ─────
+//! Connect to Another Computer…     (viewer.rs: watch another host here)
 //! Arrange Screens…
 //! Allow Screen Recording…          (only while it is missing)
 //! Show Logs
 //! ─────
+//! Check for Updates…
+//! Version 0.1.0-beta.7
 //! Quit Mullion                     ⌘Q
 //! ```
 //!
@@ -34,9 +40,12 @@ use objc2_app_kit::{
     NSMenuItem, NSPasteboard, NSPasteboardTypeString, NSStatusBar, NSStatusItem, NSVariableStatusItemLength, NSWorkspace,
 };
 use objc2_core_graphics::{CGPreflightScreenCaptureAccess, CGRequestScreenCaptureAccess};
-use objc2_foundation::{NSData, NSObject, NSObjectProtocol, NSSize, NSString, NSURL};
+use objc2_foundation::{NSData, NSObject, NSObjectProtocol, NSSize, NSString, NSTimer, NSURL};
 
 use crate::session::DevicesSnapshot;
+use crate::update::{Status, Updater};
+use dispatch2::DispatchQueue;
+use mullion_proto::version::VERSION;
 
 const GLYPH: &[u8] = include_bytes!("../macos/MenuBarIcon.png");
 const PRIVACY_SCREEN: &str = "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture";
@@ -52,6 +61,7 @@ pub struct MenuModel {
     pub devices: Box<dyn Fn() -> DevicesSnapshot>,
     /// Flush logs before the process exits.
     pub on_quit: Box<dyn Fn()>,
+    pub updater: Updater,
 }
 
 pub struct Ivars {
@@ -77,9 +87,63 @@ define_class!(
     }
 
     impl Controller {
+        /// Every 2 s: full-strength glyph while a device is connected, dimmed otherwise.
+        #[unsafe(method(refreshGlyph:))]
+        fn refresh_glyph(&self, _timer: Option<&AnyObject>) {
+            self.sync_glyph();
+        }
+
+        #[unsafe(method(installUpdate:))]
+        fn install_update(&self, _sender: Option<&AnyObject>) {
+            if let Status::Available(r) = self.ivars().model.updater.status() {
+                let updater = self.ivars().model.updater.clone();
+                std::thread::spawn(move || {
+                    if let Err(e) = updater.install(r) {
+                        on_main(move |mtm| {
+                            alert(mtm, "Couldn't download the update", &format!("{e:#}"), None);
+                        });
+                    }
+                });
+            }
+        }
+
+        #[unsafe(method(checkUpdates:))]
+        fn check_updates(&self, _sender: Option<&AnyObject>) {
+            let updater = self.ivars().model.updater.clone();
+            std::thread::spawn(move || {
+                let status = updater.check();
+                on_main(move |mtm| match status {
+                    Status::Available(r) => {
+                        let detail = format!("You have {VERSION}. Install downloads the installer and opens it.");
+                        if !alert_with(mtm, &format!("Mullion {} is available", r.version), &detail, "Later", Some("Install")) {
+                            std::thread::spawn(move || {
+                                if let Err(e) = updater.install(r) {
+                                    on_main(move |mtm| {
+                                        alert(mtm, "Couldn't download the update", &format!("{e:#}"), None);
+                                    });
+                                }
+                            });
+                        }
+                    }
+                    Status::UpToDate => {
+                        alert(mtm, "Mullion is up to date", &format!("{VERSION} is the newest version."), None);
+                    }
+                    Status::Failed(e) => {
+                        alert(mtm, "Couldn't check for updates", &e, None);
+                    }
+                    _ => {}
+                });
+            });
+        }
+
         #[unsafe(method(copyAddress:))]
         fn copy_address(&self, _sender: Option<&AnyObject>) {
             copy_text(&self.ivars().model.address);
+        }
+
+        #[unsafe(method(connectToComputer:))]
+        fn connect_to_computer(&self, _sender: Option<&AnyObject>) {
+            crate::viewer::show(self.ivars().model.port, self.as_ref(), self.mtm());
         }
 
         #[unsafe(method(arrangeScreens:))]
@@ -115,6 +179,15 @@ impl Controller {
         unsafe { msg_send![super(this), init] }
     }
 
+    fn sync_glyph(&self) {
+        let connected = (self.ivars().model.devices)().devices.iter().any(|d| d.connected);
+        if let Some(button) = self.ivars().item.get().and_then(|i| i.button(self.mtm())) {
+            button.setAppearsDisabled(!connected);
+            let tip = if connected { "Mullion: showing this Mac" } else { "Mullion: no devices connected" };
+            button.setToolTip(Some(&NSString::from_str(tip)));
+        }
+    }
+
     fn label(&self, menu: &NSMenu, text: &str, indent: isize) {
         // No action: AppKit shows it greyed out, as information.
         let item = unsafe {
@@ -142,6 +215,18 @@ impl Controller {
         let m = &self.ivars().model;
         let mtm = self.mtm();
         menu.removeAllItems();
+        let update = m.updater.status();
+        match &update {
+            Status::Available(r) => {
+                self.action(menu, &format!("Install Update {}…", r.version), sel!(installUpdate:), "");
+                menu.addItem(&NSMenuItem::separatorItem(mtm));
+            }
+            Status::Downloading(r) => {
+                self.label(menu, &format!("Downloading {}…", r.version), 0);
+                menu.addItem(&NSMenuItem::separatorItem(mtm));
+            }
+            _ => {}
+        }
         self.label(menu, &format!("Mullion on {}", m.host_name), 0);
         self.label(menu, &format!("Open {} on a tablet", m.address), 0);
         self.action(menu, "Copy Address", sel!(copyAddress:), "c");
@@ -162,12 +247,19 @@ impl Controller {
         }
         menu.addItem(&NSMenuItem::separatorItem(mtm));
 
+        self.action(menu, "Connect to Another Computer…", sel!(connectToComputer:), "");
         self.action(menu, "Arrange Screens…", sel!(arrangeScreens:), "");
         if !CGPreflightScreenCaptureAccess() {
             self.action(menu, "Allow Screen Recording…", sel!(allowScreenRecording:), "");
         }
         self.action(menu, "Show Logs", sel!(showLogs:), "");
         menu.addItem(&NSMenuItem::separatorItem(mtm));
+        match update {
+            Status::Checking => self.label(menu, "Checking for Updates…", 0),
+            Status::Downloading(_) => {}
+            _ => self.action(menu, "Check for Updates…", sel!(checkUpdates:), ""),
+        }
+        self.label(menu, &format!("Version {VERSION}"), 0);
         self.action(menu, "Quit Mullion", sel!(quit:), "q");
     }
 }
@@ -184,16 +276,25 @@ fn copy_text(text: &str) {
     pb.setString_forType(&NSString::from_str(text), unsafe { NSPasteboardTypeString });
 }
 
+/// Run `f` on the main thread (AppKit) from a worker thread.
+fn on_main(f: impl FnOnce(MainThreadMarker) + Send + 'static) {
+    DispatchQueue::main().exec_async(move || f(MainThreadMarker::new().expect("main queue runs on the main thread")));
+}
+
 /// A modal message with an OK button (and optionally a second one). Returns
 /// true when the first button was chosen.
 pub fn alert(mtm: MainThreadMarker, message: &str, detail: &str, second: Option<&str>) -> bool {
+    alert_with(mtm, message, detail, "OK", second)
+}
+
+fn alert_with(mtm: MainThreadMarker, message: &str, detail: &str, first: &str, second: Option<&str>) -> bool {
     let app = NSApplication::sharedApplication(mtm);
     #[allow(deprecated)]
     app.activateIgnoringOtherApps(true);
     let a = NSAlert::new(mtm);
     a.setMessageText(&NSString::from_str(message));
     a.setInformativeText(&NSString::from_str(detail));
-    a.addButtonWithTitle(&NSString::from_str("OK"));
+    a.addButtonWithTitle(&NSString::from_str(first));
     if let Some(s) = second {
         a.addButtonWithTitle(&NSString::from_str(s));
     }
@@ -227,13 +328,17 @@ pub fn run(model: MenuModel, first_launch: bool) -> ! {
         } else {
             button.setTitle(&NSString::from_str("Mullion"));
         }
-        button.setToolTip(Some(&NSString::from_str("Mullion")));
     }
     let menu = NSMenu::new(mtm);
     menu.setDelegate(Some(ProtocolObject::from_ref(&*controller)));
     controller.rebuild(&menu);
     item.setMenu(Some(&menu));
     let _ = controller.ivars().item.set(item);
+    controller.sync_glyph();
+    unsafe {
+        let target: &AnyObject = controller.as_ref();
+        NSTimer::scheduledTimerWithTimeInterval_target_selector_userInfo_repeats(2.0, target, sel!(refreshGlyph:), None, true);
+    }
 
     // Ask for Screen Recording now, so it is ready before the first tablet.
     let can_record = CGPreflightScreenCaptureAccess() || CGRequestScreenCaptureAccess();
