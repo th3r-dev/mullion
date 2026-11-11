@@ -78,7 +78,11 @@ pub fn hello(ip: Ipv4Addr, port: u16) -> Option<Value> {
     let mut s = TcpStream::connect_timeout(&SocketAddr::from((ip, port)), CONNECT_TIMEOUT).ok()?;
     s.set_read_timeout(Some(READ_TIMEOUT)).ok()?;
     s.set_write_timeout(Some(READ_TIMEOUT)).ok()?;
-    write!(s, "GET /hello HTTP/1.0\r\nHost: {ip}:{port}\r\nConnection: close\r\n\r\n").ok()?;
+    // One write: `write!` on the stream sends each formatted piece on its own,
+    // and a listener that reads once and closes then resets the connection,
+    // which loses its reply.
+    let req = format!("GET /hello HTTP/1.0\r\nHost: {ip}:{port}\r\nConnection: close\r\n\r\n");
+    s.write_all(req.as_bytes()).ok()?;
     // Up to 64 KiB, until the host closes or goes quiet.
     let mut buf = Vec::new();
     let _ = s.take(64 * 1024).read_to_end(&mut buf);
@@ -99,23 +103,22 @@ pub fn hello(ip: Ipv4Addr, port: u16) -> Option<Value> {
 mod tests {
     use super::*;
     use std::net::TcpListener;
-    use std::sync::Mutex;
-
-    /// One network test at a time: the sweep starts ~250 connections at once,
-    /// and on a small CI machine that held up the other tests' replies past
-    /// `hello`'s 1 s limit (a flaky failure on GitHub's macOS runner).
-    static NET: Mutex<()> = Mutex::new(());
-    fn one_at_a_time() -> std::sync::MutexGuard<'static, ()> {
-        NET.lock().unwrap_or_else(|e| e.into_inner())
-    }
 
     fn serve_once(response: &'static str) -> u16 {
         let l = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = l.local_addr().unwrap().port();
         std::thread::spawn(move || {
             let (mut c, _) = l.accept().unwrap();
-            let mut req = [0u8; 1024];
-            let _ = c.read(&mut req);
+            // Read the whole request before answering: closing with some of it
+            // unread resets the connection and the client loses the reply.
+            let mut req = Vec::new();
+            let mut chunk = [0u8; 1024];
+            while !req.windows(4).any(|w| w == b"\r\n\r\n") {
+                match c.read(&mut chunk) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => req.extend_from_slice(&chunk[..n]),
+                }
+            }
             c.write_all(response.as_bytes()).unwrap();
         });
         port
@@ -123,7 +126,6 @@ mod tests {
 
     #[test]
     fn hello_accepts_only_mullion() {
-        let _turn = one_at_a_time();
         let port = serve_once("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"app\":\"mullion\",\"name\":\"Mac\",\"port\":47100}");
         let h = hello(Ipv4Addr::LOCALHOST, port).expect("a Mullion host");
         assert_eq!(h["name"], "Mac");
@@ -137,7 +139,6 @@ mod tests {
 
     #[test]
     fn sweep_finds_a_host_on_its_24_but_not_itself() {
-        let _turn = one_at_a_time();
         let port = serve_once("HTTP/1.1 200 OK\r\n\r\n{\"app\":\"mullion\",\"name\":\"Mac\"}");
         // "This device" is 127.0.0.2: 127.0.0.1 is a neighbour on its /24.
         let found = sweep_nets(&[Ipv4Addr::new(127, 0, 0, 2)], port);
@@ -149,7 +150,6 @@ mod tests {
 
     #[test]
     fn nothing_listening_is_none() {
-        let _turn = one_at_a_time();
         let port = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
         assert!(hello(Ipv4Addr::LOCALHOST, port).is_none());
     }
