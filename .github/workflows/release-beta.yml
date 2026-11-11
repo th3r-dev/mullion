@@ -156,6 +156,17 @@ jobs:
           grep ' dx-x86_64-unknown-linux-gnu.tar.gz$' dx-x86_64-unknown-linux-gnu.sha256 | sha256sum -c -
           mkdir -p "$HOME/.local/bin" && tar -xzf dx-x86_64-unknown-linux-gnu.tar.gz -C "$HOME/.local/bin"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Signing key
+        # Gradle signs debug builds with ~/.android/debug.keystore, which a
+        # fresh runner makes up anew: every APK had its own key, and Android
+        # refuses an update signed with another key ("package conflicts").
+        # One key for every build lets updates install over the last one.
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_DEBUG_KEYSTORE }}
+        run: |
+          if [ -z "$KEYSTORE" ]; then echo "::warning::No ANDROID_DEBUG_KEYSTORE secret: this APK gets a one-off key"; exit 0; fi
+          mkdir -p "$HOME/.android"
+          echo "$KEYSTORE" | base64 --decode > "$HOME/.android/debug.keystore"
       - name: Build the APK
         run: |
           export ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME"
