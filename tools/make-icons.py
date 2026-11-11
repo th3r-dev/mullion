@@ -16,8 +16,13 @@ rounded-square tile with a soft shadow (the macOS icon grid: 824 px tile in a
 at 18 pt: a laptop with a tablet beside it, "this Mac and another screen".
 The menu bar dims it while nothing is connected.
 
+For the Windows app: crates/app/assets/icons/mullion.ico, the Mac app tile
+(paper rounded square, cut from Mullion.icns without its shadow margin) at
+16 to 256 px. crates/app/build.rs embeds it in the .exe.
+
   python3 tools/make-icons.py             everything (needs Chrome)
   python3 tools/make-icons.py --menubar   only MenuBarIcon.png
+  python3 tools/make-icons.py --windows   only mullion.ico (from Mullion.icns)
 """
 import base64, os, re, shutil, subprocess, sys, tempfile
 from pathlib import Path
@@ -126,6 +131,20 @@ def make_mac(sq: Image.Image):
     icon.resize((256, 256), Image.LANCZOS).save(MAC / "AppIcon-256.png")
 
     menubar_glyph()
+    windows_ico()
+
+
+def windows_ico():
+    """The Mac tile, cropped to the tile itself so small sizes are not mostly margin."""
+    with tempfile.TemporaryDirectory() as td:
+        iconset = Path(td) / "Mullion.iconset"
+        subprocess.run(["iconutil", "-c", "iconset", "-o", str(iconset), str(MAC / "Mullion.icns")], check=True)
+        big = Image.open(iconset / "icon_512x512@2x.png").convert("RGBA")
+    # The tile is 824 of 1024 px, centred (see the icns above); the shadow sits outside it.
+    x0 = (1024 - 824) // 2
+    tile = big.crop((x0, x0, x0 + 824, x0 + 824)).resize((256, 256), Image.LANCZOS)
+    sizes = [(n, n) for n in (16, 24, 32, 48, 64, 128, 256)]
+    tile.save(OUT / "mullion.ico", sizes=sizes)
 
 
 def menubar_glyph():
@@ -146,4 +165,6 @@ def menubar_glyph():
 if __name__ == "__main__":
     if sys.argv[1:] == ["--menubar"]:
         sys.exit(menubar_glyph())
+    if sys.argv[1:] == ["--windows"]:
+        sys.exit(windows_ico())
     sys.exit(main())

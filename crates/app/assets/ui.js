@@ -232,9 +232,19 @@
 
   dcBtn.addEventListener('click', () => mullion.disconnect());
   modeBtn.addEventListener('click', () => { setMode(mode === 'extend' ? 'mirror' : 'extend', true); connect(); });
-  fsBtn.addEventListener('click', () => { const d = document.documentElement; if (!document.fullscreenElement) (d.requestFullscreen || d.webkitRequestFullscreen).call(d); else (document.exitFullscreen || document.webkitExitFullscreen).call(document); });
+  // In the desktop app (Windows viewer) the page's fullscreen only fills the web
+  // view; main.rs provides mullionNative to make the window itself full screen.
+  let nativeFs = false;
+  function setNativeFullscreen(on) { nativeFs = on; window.mullionNative.fullscreen(on); syncFullscreen(); }
+  fsBtn.addEventListener('click', () => {
+    if (window.mullionNative) { setNativeFullscreen(!nativeFs); return; }
+    const d = document.documentElement;
+    if (!document.fullscreenElement) (d.requestFullscreen || d.webkitRequestFullscreen).call(d); else (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+  });
+  // Esc leaves full screen, as it does in a browser.
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && nativeFs) setNativeFullscreen(false); });
   function syncFullscreen() {
-    const on = !!(document.fullscreenElement || document.webkitFullscreenElement);
+    const on = nativeFs || !!(document.fullscreenElement || document.webkitFullscreenElement);
     fsLabel.textContent = on ? 'Exit full screen' : 'Full screen';
     fsBtn.title = fsLabel.textContent;
     setIcon(fsIcon, on ? 'exit-fullscreen' : 'fullscreen');

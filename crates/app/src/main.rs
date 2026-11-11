@@ -20,6 +20,13 @@ const UI_CSS: &str = include_str!("../assets/ui.css");
 const UI_HTML: &str = include_str!("../assets/ui.html");
 
 fn main() {
+    // Desktop (the Windows viewer): our title, not "Dioxus App". The window
+    // icon comes from the .exe's icon resource (build.rs).
+    #[cfg(feature = "desktop")]
+    dioxus::LaunchBuilder::desktop()
+        .with_cfg(dioxus::desktop::Config::new().with_window(dioxus::desktop::WindowBuilder::new().with_title("Mullion")))
+        .launch(App);
+    #[cfg(not(feature = "desktop"))]
     dioxus::launch(App);
 }
 
@@ -32,6 +39,23 @@ fn App() -> Element {
         let _ = eval(UI_JS).await;
         let _ = eval(LAYOUT_JS).await;
     });
+
+    // Desktop: the page's Full screen button fills only the web view (WebView2
+    // does not resize the window), so ui.js asks for the window itself through
+    // window.mullionNative.fullscreen(on), and this makes it borderless full screen.
+    #[cfg(feature = "desktop")]
+    {
+        let win = dioxus::desktop::window();
+        use_future(move || {
+            let win = win.clone();
+            async move {
+                let mut bridge = eval("window.mullionNative = { fullscreen: (on) => dioxus.send(!!on) }; await new Promise(() => {});");
+                while let Ok(on) = bridge.recv::<bool>().await {
+                    win.set_fullscreen(on);
+                }
+            }
+        });
+    }
 
     rsx! {
         document::Meta { name: "color-scheme", content: "light dark" }
