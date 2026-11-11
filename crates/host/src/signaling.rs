@@ -84,6 +84,8 @@ pub struct Signaling {
     web: Option<Server>,
     handler: Arc<dyn OfferHandler>,
     host_name: String,
+    /// What receivers are told this host is: "Mac", "tablet".
+    kind: &'static str,
     config: serde_json::Value,
     lan_ips: Vec<String>,
     pairing: Option<Arc<Pairing>>,
@@ -126,7 +128,13 @@ impl Signaling {
         let server = Server::http(addr).map_err(|e| {
             anyhow!("Can't listen on port {}: {}. Pick another with --port.", addr.port(), e)
         })?;
-        Ok(Self { server, web: None, handler, host_name, config: serde_json::Value::Null, lan_ips: Vec::new(), pairing: None })
+        Ok(Self { server, web: None, handler, host_name, kind: "Mac", config: serde_json::Value::Null, lan_ips: Vec::new(), pairing: None })
+    }
+
+    /// What receivers are told this host is ("Mac" by default).
+    pub fn with_kind(mut self, kind: &'static str) -> Self {
+        self.kind = kind;
+        self
     }
 
     /// Effective switches, served at `/config`.
@@ -246,10 +254,10 @@ impl Signaling {
                             sealed: Sealed,
                         }
                         let Ok(so) = serde_json::from_slice::<SealedOffer>(&body) else {
-                            return respond_json(req, 401, &serde_json::json!({"pair": true, "error": "Pair this device with the Mac first."}));
+                            return respond_json(req, 401, &serde_json::json!({"pair": true, "error": format!("Pair this device with the {} first.", self.kind)}));
                         };
                         if !p.is_paired(&so.device) {
-                            return respond_json(req, 401, &serde_json::json!({"pair": true, "error": "This Mac no longer knows this device. Pair again."}));
+                            return respond_json(req, 401, &serde_json::json!({"pair": true, "error": format!("This {} no longer knows this device. Pair again.", self.kind)}));
                         }
                         match p.open_offer(&so.device, &so.sealed) {
                             Ok((plain, ctx)) => (plain, Some(ctx)),
@@ -313,7 +321,7 @@ impl Signaling {
                     "/pair/confirm" => p.confirm(&field("pairing"), &field("mac"), &self.host_name).map(|c| serde_json::to_value(c).unwrap_or_default()),
                     _ => match p.challenge(&field("device")) {
                         Some(nonce) => Ok(serde_json::json!({ "nonce": nonce })),
-                        None => return respond_json(req, 401, &serde_json::json!({"pair": true, "error": "Pair this device with the Mac first."})),
+                        None => return respond_json(req, 401, &serde_json::json!({"pair": true, "error": format!("Pair this device with the {} first.", self.kind)})),
                     },
                 };
                 match out {
@@ -322,7 +330,7 @@ impl Signaling {
                     Err(PairError::Gone) => respond_json(req, 410, &serde_json::json!({ "error": "No pairing in progress, or it expired." })),
                     Err(PairError::Busy) => respond_json(req, 429, &serde_json::json!({ "error": "Another device is pairing. Try again in a few seconds." })),
                     Err(PairError::WrongCode { left }) => respond_json(req, 403, &serde_json::json!({ "error": "Wrong code.", "left": left })),
-                    Err(PairError::Full) => respond_json(req, 507, &serde_json::json!({ "error": "Too many paired devices. Forget some on the Mac." })),
+                    Err(PairError::Full) => respond_json(req, 507, &serde_json::json!({ "error": format!("Too many paired devices. Forget some on the {}.", self.kind) })),
                 }
             }
             ("/offer", _) => respond_status(req, 405, "Use POST"),
@@ -351,7 +359,7 @@ impl Signaling {
             }
             ("/devices", Method::Get) => {
                 if !self.allowed(&req, peer, &path, b"") {
-                    return respond_status(req, 401, "Pair this device with the Mac first");
+                    return respond_status(req, 401, &format!("Pair this device with the {} first", self.kind));
                 }
                 let body = serde_json::to_vec(&self.handler.devices())?;
                 let resp = Response::from_data(body).with_header(Header::from_bytes("Content-Type", "application/json").unwrap());
@@ -359,7 +367,7 @@ impl Signaling {
             }
             ("/screens", Method::Get) => {
                 if !self.allowed(&req, peer, &path, b"") {
-                    return respond_status(req, 401, "Pair this device with the Mac first");
+                    return respond_status(req, 401, &format!("Pair this device with the {} first", self.kind));
                 }
                 let view = self.handler.screens();
                 self.respond_screens(req, view)
@@ -372,7 +380,7 @@ impl Signaling {
                     return respond_status(req, 413, "Layout too large");
                 }
                 if !self.allowed(&req, peer, &path, &body) {
-                    return respond_status(req, 401, "Pair this device with the Mac first");
+                    return respond_status(req, 401, &format!("Pair this device with the {} first", self.kind));
                 }
                 let Ok(layout) = serde_json::from_slice::<LayoutRequest>(&body) else {
                     return respond_status(req, 400, "Body must be JSON {\"cells\":[{\"display_id\":7,\"col\":1,\"row\":0}]}");
