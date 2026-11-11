@@ -407,6 +407,20 @@
     });
   }
 
+  // Links out (the update, GitHub, Sponsor) open in the system browser. In
+  // the apps a web view would try them itself: Android's ignores a new
+  // window, and neither can install a download.
+  function openOutside(url) {
+    if (window.mullionNative && window.mullionNative.open) window.mullionNative.open(url);
+    else window.open(url, '_blank', 'noopener');
+  }
+  document.addEventListener('click', (e) => {
+    const a = e.target.closest && e.target.closest('a[href^="https://"]');
+    if (!a || !(window.mullionNative && window.mullionNative.open)) return;
+    e.preventDefault();
+    window.mullionNative.open(a.href);
+  });
+
   // The Windows and Android apps look for a newer beta on GitHub at start and
   // every 6 hours, and offer this platform's file (Mullion.app has its own
   // updater in the menu bar). The page can call GitHub itself: it is HTTPS.
@@ -433,6 +447,7 @@
     }
     return false;
   }
+  let asked = '';
   async function checkUpdate() {
     if (!UPDATE_FILE || !window.MULLION_VERSION) return;
     try {
@@ -450,6 +465,14 @@
       link.textContent = `Get Mullion ${best.version}`;
       link.title = 'Download the new version';
       link.hidden = false;
+      // Ask once per start (the link stays after Later).
+      if (asked === best.version) return;
+      asked = best.version;
+      $('updateText').textContent = `Mullion ${best.version} is out. You have ${window.MULLION_VERSION}.`;
+      const bar = $('updateBar');
+      bar.hidden = false;
+      $('updateLater').onclick = () => { bar.hidden = true; };
+      $('updateGo').onclick = () => { bar.hidden = true; openOutside(best.url); };
     } catch (e) { /* offline or rate-limited: try again later */ }
   }
   if (UPDATE_FILE) { setTimeout(checkUpdate, 3000); setInterval(checkUpdate, 6 * 3600 * 1000); }
