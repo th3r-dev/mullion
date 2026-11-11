@@ -5,11 +5,17 @@
 #   Mullion-<v>-android-arm64.apk      Tablet app (debug-signed: uninstall the old
 #                                      beta before installing a new one)
 #
-# Two ways to start it:
-#   - Actions > Beta release > Run workflow (on dev): numbers the beta for you,
+# How it runs:
+#   - A pull request into dev: tests and builds every package, publishes
+#     nothing (packages are on the run's page). A newer push to the PR cancels
+#     the older run.
+#   - Merging it (any push to dev): builds and publishes the next beta,
 #     <Cargo.toml version>-beta.<run number>, e.g. 0.1.0-beta.12, and tags it.
-#     Untick "publish" to build everything without releasing (a dry run).
+#     Run numbers count PR runs too, so betas are not consecutive.
+#   - By hand: Actions > Beta release > Run workflow. Untick "publish" for a
+#     dry run.
 #   - Push a tag: git tag v0.1.0-beta.3 && git push origin v0.1.0-beta.3
+# Changes to Markdown alone do not run it.
 #
 # Mullion.app checks these releases for updates (crates/host/src/update.rs);
 # it installs the .pkg asset.
@@ -22,15 +28,21 @@ on:
         description: Publish the pre-release (untick for a build-only dry run)
         type: boolean
         default: true
+  pull_request:
+    branches: [dev]
+    paths-ignore: ["**.md"]
   push:
+    branches: [dev]
     tags: ["v*-beta.*"]
+    paths-ignore: ["**.md"]
 
 permissions:
   contents: write
 
+# Releases one at a time, in order; a PR's runs replace each other.
 concurrency:
-  group: release-beta
-  cancel-in-progress: false
+  group: ${{ github.event_name == 'pull_request' && format('beta-pr-{0}', github.ref) || 'release-beta' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   version:
@@ -158,6 +170,7 @@ jobs:
 
   release:
     needs: [version, macos, windows, android]
+    # Pull requests build only.
     if: github.event_name == 'push' || inputs.publish
     runs-on: ubuntu-latest
     env:
