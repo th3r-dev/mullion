@@ -1,0 +1,25 @@
+# Before: the released beta.15 APK in an Android 15 emulator (WebView 124).
+# From the app's page, via Chrome DevTools:
+#   location.origin = "https://dioxus.index.html", isSecureContext = true
+#   fetch('http://10.43.77.126:47100/hello') -> TypeError: Failed to fetch
+# logcat:
+Mixed Content: The page at 'https://dioxus.index.html/' was loaded over HTTPS, but requested an insecure resource 'http://10.43.77.126:47100/hello'. This request has been blocked; the content must be served over HTTPS.
+
+# After: this branch's APK (stamped 0.1.0-beta.14), same emulator, against a dev host on port 47201.
+# window.mullionNative = [nearby, http]; the page connected through mullionNative.http:
+ INFO mullion_host::pairing: pairing requested by Android test
+ INFO mullion_host::pairing: paired Android test
+ INFO mullion_host::signaling: offer from 10.43.77.126:50209 answered (Mirror)
+ INFO mullion_host::session: #1 ice: Checking
+ INFO mullion_host::session: #1 ice: Completed
+ INFO mullion_host::platform::macos: pipeline started for Main: 1920x1080 @ 60 fps, 10000 kbps
+ INFO mullion_host::session: #1 dtls connected
+ INFO mullion_host::session: #1 data channel open: probe
+ INFO mullion_host::session: #1 receiver: jitterBufferTarget supported=true value=Some(0.0) ua=Mozilla/5.0 (Linux; Android 15; sdk_gphone64_arm64 Build/AE3A.240806.043; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/124.0.6367.219 Mobile Safari/537.36
+ INFO mullion_host::session: #1 ice: Disconnected
+ INFO mullion_host::platform::macos: pipeline stopped
+
+# Page: mullion.stats().status = "streaming".
+# The emulator then ran out of memory decoding 1080p60 H.264 in software (no GPU, -no-window):
+# 'Too many frames backed up in the decoder' ... 'mmap failed: Out of memory' in the WebView renderer.
+# That is the headless emulator's limit, not this change: a tablet decodes H.264 in hardware.
