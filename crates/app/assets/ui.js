@@ -230,7 +230,7 @@
   }
   scanBtn.addEventListener('click', runScan);
 
-  dcBtn.addEventListener('click', () => mullion.disconnect());
+  dcBtn.addEventListener('click', () => mullion.leave());
   modeBtn.addEventListener('click', () => { setMode(mode === 'extend' ? 'mirror' : 'extend', true); connect(); });
   // In the desktop app (Windows viewer) the page's fullscreen only fills the web
   // view; main.rs provides mullionNative to make the window itself full screen.

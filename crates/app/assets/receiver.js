@@ -1,6 +1,6 @@
 // Mullion receiver (FR-4, FR-5, FR-9 receiver side). Runs inside the Dioxus
 // WebView on Android/desktop and inside a plain browser page for smoke tests.
-// Exposes window.mullion = { connect, disconnect, stats, onStatus }.
+// Exposes window.mullion = { connect, disconnect, leave, stats, onStatus }.
 (function () {
   'use strict';
   const BLOCKS = 38, SYNC = 2, DATA = 32;
@@ -260,6 +260,17 @@
     if (state.status !== 'streaming') setStatus('connected');
   }
 
+  // Leaving on purpose (Disconnect, app or page closed): say bye first, so the
+  // host removes this device's screen at once instead of keeping it for the
+  // reconnect grace period. disconnect() alone stays quiet: connect() uses it
+  // to switch modes, where the screen should survive.
+  function leave() {
+    if (state.dc && state.dc.readyState === 'open') { try { state.dc.send(JSON.stringify({ type: 'bye' })); } catch (e) { /* */ } }
+    disconnect();
+  }
+  // Closing the window, the tab or the app, or navigating away.
+  addEventListener('pagehide', () => { if (state.pc) leave(); });
+
   function disconnect() {
     if (state.dc) { try { state.dc.close(); } catch (e) { /* */ } }
     if (state.pc) { try { state.pc.close(); } catch (e) { /* */ } }
@@ -413,7 +424,7 @@
     return [...found.values()];
   }
 
-  window.mullion = { connect, disconnect, stats: snapshot, onStatus: (fn) => state.listeners.push(fn), decodeStrip, unwrapMs, deviceId, deviceName, setDeviceName,
+  window.mullion = { connect, disconnect, leave, stats: snapshot, onStatus: (fn) => state.listeners.push(fn), decodeStrip, unwrapMs, deviceId, deviceName, setDeviceName,
     scan, hello, recentHosts, rememberHost, isLastUsed, portFor, parseTarget,
     // UI work without a host: feed a fake stream and status through the real paths.
     _simulate(status, videoEl, hostName) {

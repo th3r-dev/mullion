@@ -56,8 +56,15 @@ impl Platform for MacOs {
         if let Source::Virtual(id) = source {
             let mut ours = OUR_DISPLAYS.lock().unwrap();
             ours.retain(|d| *d != id);
-            // Let the OS drop the display, then close the gap it left.
-            std::thread::sleep(Duration::from_millis(400));
+            // The display was just released; macOS takes it offline a moment
+            // later. Arranging while it is still listed fails (CGError 1001),
+            // so wait until it is gone (up to 3 s), then close the gap it left.
+            for _ in 0..30 {
+                if !arrange::online().map(|ids| ids.contains(&id)).unwrap_or(false) {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
             if super::arrange_enabled() {
                 if let Err(e) = arrange::arrange(&ours, arrange::Placement::Keep) {
                     warn!("arrange displays: {e:#}");

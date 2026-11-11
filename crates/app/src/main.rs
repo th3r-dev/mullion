@@ -21,10 +21,15 @@ const UI_HTML: &str = include_str!("../assets/ui.html");
 
 fn main() {
     // Desktop (the Windows viewer): our title, not "Dioxus App". The window
-    // icon comes from the .exe's icon resource (build.rs).
+    // icon comes from the .exe's icon resource (build.rs). Closing the window
+    // first hides it, so App can say bye to the host before it really closes.
     #[cfg(feature = "desktop")]
     dioxus::LaunchBuilder::desktop()
-        .with_cfg(dioxus::desktop::Config::new().with_window(dioxus::desktop::WindowBuilder::new().with_title("Mullion")))
+        .with_cfg(
+            dioxus::desktop::Config::new()
+                .with_window(dioxus::desktop::WindowBuilder::new().with_title("Mullion"))
+                .with_close_behaviour(dioxus::desktop::WindowCloseBehaviour::WindowHides),
+        )
         .launch(App);
     #[cfg(not(feature = "desktop"))]
     dioxus::launch(App);
@@ -45,6 +50,23 @@ fn App() -> Element {
     // window.mullionNative.fullscreen(on), and this makes it borderless full screen.
     #[cfg(feature = "desktop")]
     {
+        // Closing the window: the page's pagehide does not fire when a native
+        // window closes, so tell the host we are leaving here (its screen then
+        // goes at once, not after the reconnect grace), give the message a
+        // moment to go out, then close for real.
+        let closing = dioxus::desktop::window();
+        dioxus::desktop::use_wry_event_handler(move |event, _| {
+            use dioxus::desktop::tao::event::{Event, WindowEvent};
+            if let Event::WindowEvent { event: WindowEvent::CloseRequested, .. } = event {
+                let win = closing.clone();
+                spawn(async move {
+                    let _ = eval("if (window.mullion) mullion.leave(); await new Promise((r) => setTimeout(r, 250));").await;
+                    win.set_close_behavior(dioxus::desktop::WindowCloseBehaviour::WindowCloses);
+                    win.close();
+                });
+            }
+        });
+
         let win = dioxus::desktop::window();
         use_future(move || {
             let win = win.clone();

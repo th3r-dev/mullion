@@ -240,15 +240,18 @@ struct Active {
     probe_channel: Option<ChannelId>,
     connected: bool,
     frames_sent: u64,
+    /// The receiver said bye: its screen goes at once, no reconnect grace.
+    left: bool,
 }
 
 struct OwnedDisplay {
     display: Box<dyn VirtualDisplay>,
     name: String,
     device_name: String,
-    /// Set when the owning device has no session; the display is removed once
-    /// this is older than [`DISPLAY_GRACE`]. Cleared on reconnect.
-    orphaned_at: Option<Instant>,
+    /// Set when the owning device has no session: the display is removed at
+    /// this time (now + grace for a dropped connection, now for a device that
+    /// said bye). Cleared on reconnect.
+    remove_at: Option<Instant>,
 }
 
 /// Default for how long a device's virtual display survives after its last
@@ -319,6 +322,7 @@ impl SessionLoop {
                         probe_channel: None,
                         connected: false,
                         frames_sent: 0,
+                        left: false,
                     });
                     touched.push(self.sessions.len() - 1);
                 }
@@ -437,8 +441,8 @@ impl SessionLoop {
                 }
             }
             Event::ChannelData(d) => {
-                if Some(d.id) == self.sessions[i].probe_channel {
-                    self.on_probe(i, &d.data);
+                if Some(d.id) == self.sessions[i].probe_channel && self.on_probe(i, &d.data) {
+                    return Some("receiver left");
                 }
             }
             Event::IceConnectionStateChange(s) => {
@@ -504,7 +508,7 @@ impl SessionLoop {
                         Some(vd) => {
                             let source = vd.source();
                             let device_name = self.sessions[i].device.name.clone();
-                            self.displays.insert(key.clone(), OwnedDisplay { display: vd, name: name.clone(), device_name, orphaned_at: None });
+                            self.displays.insert(key.clone(), OwnedDisplay { display: vd, name: name.clone(), device_name, remove_at: None });
                             // Back where it was put on the layout map, if that spot is free.
                             let cell = self.remembered.lock().unwrap().get(&key).copied();
                             if let (Some(cell), Source::Virtual(id)) = (cell, source) {
@@ -520,7 +524,7 @@ impl SessionLoop {
                     self.log.record(Record::Event { at_ms: now_ms(), what: format!("virtual display created: {name}") });
                 }
                 let d = self.displays.get_mut(&key).unwrap();
-                if d.orphaned_at.take().is_some() {
+                if d.remove_at.take().is_some() {
                     info!("{} reclaimed by its device", d.name);
                 }
                 d.display.source()
@@ -575,12 +579,12 @@ impl SessionLoop {
             .displays
             .values()
             .filter_map(|d| {
-                let t = d.orphaned_at?;
+                let t = d.remove_at?;
                 let id = match d.display.source() {
                     Source::Virtual(id) => id,
                     _ => return None,
                 };
-                Some(OrphanedScreen { screen_name: d.name.clone(), display_id: id, removes_in_secs: self.display_grace.saturating_sub(now.duration_since(t)).as_secs() })
+                Some(OrphanedScreen { screen_name: d.name.clone(), display_id: id, removes_in_secs: t.saturating_duration_since(now).as_secs() })
             })
             .collect();
         let owners: Vec<ScreenOwner> = self
@@ -595,17 +599,18 @@ impl SessionLoop {
                     device_id: if key.starts_with("session-") { None } else { Some(key.clone()) },
                     device_name: session.map(|a| a.device.name.clone()).unwrap_or_else(|| d.device_name.clone()),
                     connected: session.is_some(),
-                    removes_in_secs: d.orphaned_at.map(|t| self.display_grace.saturating_sub(now.duration_since(t)).as_secs()),
+                    removes_in_secs: d.remove_at.map(|t| t.saturating_duration_since(now).as_secs()),
                 })
             })
             .collect();
         *self.devices.lock().unwrap() = DevicesSnapshot { devices: rows, pending_removal, screens: owners };
     }
 
-    fn on_probe(&mut self, i: usize, data: &[u8]) {
+    /// Handle one probe-channel message. Returns true when the receiver said bye.
+    fn on_probe(&mut self, i: usize, data: &[u8]) -> bool {
         let Ok(msg) = serde_json::from_slice::<ProbeMessage>(data) else {
             debug!("probe: unparseable {} bytes", data.len());
-            return;
+            return false;
         };
         let a = &mut self.sessions[i];
         match msg {
@@ -632,7 +637,12 @@ impl SessionLoop {
                 self.log.record(Record::Capabilities { session: a.id, peer, jitter_buffer_target_supported, jitter_buffer_target_ms, user_agent });
             }
             ProbeMessage::Pong { .. } => {}
+            ProbeMessage::Bye => {
+                a.left = true;
+                return true;
+            }
         }
+        false
     }
 
     fn end_session(&mut self, i: usize, reason: &str) {
@@ -650,13 +660,19 @@ impl SessionLoop {
                 if let Some(mut p) = self.pipelines.remove(&src) {
                     p.stop();
                 }
-                // The device's screen stays for DISPLAY_GRACE so a reconnect gets
-                // its window layout back; after that it is removed (see `reap_displays`).
+                // A dropped connection keeps the device's screen for the grace
+                // period so a reconnect gets its window layout back; a device that
+                // said bye loses it at once. Removal is in `reap_displays`.
                 if let Source::Virtual(id) = src {
+                    let grace = if a.left { Duration::ZERO } else { self.display_grace };
                     for d in self.displays.values_mut() {
-                        if d.display.source() == Source::Virtual(id) && d.orphaned_at.is_none() {
-                            d.orphaned_at = Some(Instant::now());
-                            info!("{} kept for {} s in case {} comes back", d.name, self.display_grace.as_secs(), a.device.name);
+                        if d.display.source() == Source::Virtual(id) && d.remove_at.is_none() {
+                            d.remove_at = Some(Instant::now() + grace);
+                            if a.left {
+                                info!("{} goes now: {} left", d.name, a.device.name);
+                            } else {
+                                info!("{} kept for {} s in case {} comes back", d.name, grace.as_secs(), a.device.name);
+                            }
                         }
                     }
                 }
@@ -664,21 +680,24 @@ impl SessionLoop {
         }
     }
 
-    /// Remove virtual displays whose device has been gone longer than the grace period.
+    /// Remove virtual displays whose removal time has come.
     fn reap_displays(&mut self) {
         let now = Instant::now();
         let gone: Vec<String> = self
             .displays
             .iter()
-            .filter(|(_, d)| d.orphaned_at.map(|t| now.duration_since(t) >= self.display_grace).unwrap_or(false))
+            .filter(|(_, d)| d.remove_at.is_some_and(|t| now >= t))
             .map(|(k, _)| k.clone())
             .collect();
         for k in gone {
             if let Some(d) = self.displays.remove(&k) {
-                info!("{} removed: its device did not come back", d.name);
+                info!("{} removed", d.name);
                 self.log.record(Record::Event { at_ms: now_ms(), what: format!("virtual display removed: {}", d.name) });
-                self.platform.virtual_display_removed(d.display.source());
+                // Release the display first, then let the platform tidy up the
+                // arrangement it leaves behind (it must not see it still online).
+                let source = d.display.source();
                 drop(d);
+                self.platform.virtual_display_removed(source);
             }
         }
     }

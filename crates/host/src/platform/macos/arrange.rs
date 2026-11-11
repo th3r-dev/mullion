@@ -23,7 +23,7 @@ use crate::platform::DisplayInfo;
 
 static CONFIG: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-fn online() -> Result<Vec<CGDirectDisplayID>> {
+pub(super) fn online() -> Result<Vec<CGDirectDisplayID>> {
     let mut ids = [0u32; 32];
     let mut n = 0u32;
     let err = unsafe { CGGetOnlineDisplayList(32, ids.as_mut_ptr(), &mut n) };
@@ -111,9 +111,13 @@ pub fn arrange(virtual_ids: &[CGDirectDisplayID], placement: Placement) -> Resul
         bail!("CGBeginDisplayConfiguration: {err:?}");
     }
     unsafe {
-        // (1) nothing mirrors anything.
+        // (1) nothing mirrors anything. Only touch displays that do mirror:
+        // un-mirroring one that does not fails the whole configuration
+        // (CGError 1001) when it is the only display, e.g. after ours left.
         for d in online {
-            CGConfigureDisplayMirrorOfDisplay(cfg, *d, kCGNullDirectDisplay);
+            if CGDisplayMirrorsDisplay(*d) != kCGNullDirectDisplay {
+                CGConfigureDisplayMirrorOfDisplay(cfg, *d, kCGNullDirectDisplay);
+            }
         }
         // (2) the physical display is main, at the origin. Moving the main
         // display shifts the desktop space, so only do it when it is not there.

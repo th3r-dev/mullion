@@ -106,6 +106,10 @@ pub enum ProbeMessage {
         jitter_buffer_target_ms: Option<f64>,
         user_agent: String,
     },
+    /// receiver -> host: leaving on purpose (Disconnect, app or page closed).
+    /// The host removes this device's screen at once instead of keeping it
+    /// for the reconnect grace period, which is for dropped connections.
+    Bye,
 }
 
 #[cfg(test)]
@@ -152,6 +156,9 @@ mod tests {
     fn probe_messages_are_type_tagged() {
         let m: ProbeMessage = serde_json::from_str(r#"{"type":"ping","t0":12.5}"#).unwrap();
         assert_eq!(m, ProbeMessage::Ping { t0: 12.5 });
+        // What receiver.js sends from leave().
+        let m: ProbeMessage = serde_json::from_str(r#"{"type":"bye"}"#).unwrap();
+        assert_eq!(m, ProbeMessage::Bye);
         let s = serde_json::to_string(&ProbeMessage::Pong { t0: 1.0, t1: 2.0 }).unwrap();
         assert_eq!(s, r#"{"type":"pong","t0":1.0,"t1":2.0}"#);
         let c: ProbeMessage = serde_json::from_str(

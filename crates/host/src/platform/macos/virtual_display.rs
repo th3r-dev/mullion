@@ -39,17 +39,19 @@ impl VirtualDisplay {
         let mode_cls = class("CGVirtualDisplayMode")?;
         let display_cls = class("CGVirtualDisplay")?;
 
+        // The private CGVirtualDisplay* setters take `unsigned int` (u32); a
+        // usize argument is a type mismatch (objc2 debug builds panic on it).
         unsafe {
             let desc: Retained<AnyObject> = msg_send![msg_send![desc_cls, alloc], init];
             let ns_name = NSString::from_str(name);
             let _: () = msg_send![&*desc, setName: &*ns_name];
-            let _: () = msg_send![&*desc, setMaxPixelsWide: width as usize];
-            let _: () = msg_send![&*desc, setMaxPixelsHigh: height as usize];
+            let _: () = msg_send![&*desc, setMaxPixelsWide: width];
+            let _: () = msg_send![&*desc, setMaxPixelsHigh: height];
             // 16:9 at ~100 dpi so macOS picks 1x scaling.
             let _: () = msg_send![&*desc, setSizeInMillimeters: CGSize::new(width as f64 * 0.2645, height as f64 * 0.2645)];
-            let _: () = msg_send![&*desc, setVendorID: 0x4D4Cusize]; // "ML"
-            let _: () = msg_send![&*desc, setProductID: 0x0001usize];
-            let _: () = msg_send![&*desc, setSerialNum: serial as usize];
+            let _: () = msg_send![&*desc, setVendorID: 0x4D4Cu32]; // "ML"
+            let _: () = msg_send![&*desc, setProductID: 0x0001u32];
+            let _: () = msg_send![&*desc, setSerialNum: serial];
             let _: () = msg_send![&*desc, setRedPrimary: CGPoint::new(0.64, 0.33)];
             let _: () = msg_send![&*desc, setGreenPrimary: CGPoint::new(0.30, 0.60)];
             let _: () = msg_send![&*desc, setBluePrimary: CGPoint::new(0.15, 0.06)];
@@ -64,10 +66,10 @@ impl VirtualDisplay {
             let display: Retained<AnyObject> = msg_send![msg_send![display_cls, alloc], initWithDescriptor: &*desc];
 
             let mode: Retained<AnyObject> =
-                msg_send![msg_send![mode_cls, alloc], initWithWidth: width as usize, height: height as usize, refreshRate: hz as f64];
+                msg_send![msg_send![mode_cls, alloc], initWithWidth: width, height: height, refreshRate: hz as f64];
             let modes: Retained<NSArray<AnyObject>> = NSArray::from_retained_slice(&[mode]);
             let settings: Retained<AnyObject> = msg_send![msg_send![settings_cls, alloc], init];
-            let _: () = msg_send![&*settings, setHiDPI: 0usize];
+            let _: () = msg_send![&*settings, setHiDPI: 0u32];
             let _: () = msg_send![&*settings, setModes: &*modes];
             let ok: bool = msg_send![&*display, applySettings: &*settings];
             if !ok {
