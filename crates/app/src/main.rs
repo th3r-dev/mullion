@@ -7,6 +7,9 @@
 //! where the interface is crafted. Rust owns the shell, lifecycle and the
 //! platform pieces that arrive in later steps (touch injection, haptics).
 
+// Windows release build: a window app, no console window behind it.
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 use dioxus::document::eval;
 use dioxus::prelude::*;
 

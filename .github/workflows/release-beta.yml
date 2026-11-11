@@ -1,16 +1,27 @@
-# Beta release: build Mullion.app, package it, publish a GitHub pre-release.
+# Beta release: build every package, publish them as one GitHub pre-release.
+#
+#   Mullion-<v>.pkg                    Mac host (Apple silicon, macOS 14+)
+#   Mullion-<v>-windows-x64.exe        Windows viewer: the receiver app, watches a host
+#   Mullion-<v>-android-arm64.apk      Tablet app (debug-signed: uninstall the old
+#                                      beta before installing a new one)
 #
 # Two ways to start it:
 #   - Actions > Beta release > Run workflow (on dev): numbers the beta for you,
 #     <Cargo.toml version>-beta.<run number>, e.g. 0.1.0-beta.12, and tags it.
+#     Untick "publish" to build everything without releasing (a dry run).
 #   - Push a tag: git tag v0.1.0-beta.3 && git push origin v0.1.0-beta.3
 #
 # Mullion.app checks these releases for updates (crates/host/src/update.rs);
-# the release needs the .pkg asset attached for "Install Update…" to work.
+# it installs the .pkg asset.
 name: Beta release
 
 on:
   workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the pre-release (untick for a build-only dry run)
+        type: boolean
+        default: true
   push:
     tags: ["v*-beta.*"]
 
@@ -22,16 +33,13 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  macos:
-    # Apple silicon, like the package (hostArchitectures="arm64").
-    runs-on: macos-15
-    timeout-minutes: 45
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.pick.outputs.version }}
     steps:
       - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0 # the app's build number is the commit count
-
-      - name: Pick the version
+      - id: pick
         run: |
           if [ "$GITHUB_REF_TYPE" = tag ]; then
             v="${GITHUB_REF_NAME#v}"
@@ -40,27 +48,117 @@ jobs:
             v="$base-beta.$GITHUB_RUN_NUMBER"
           fi
           case "$v" in *-beta.*) ;; *) echo "::error::$v is not a beta version"; exit 1 ;; esac
-          echo "MULLION_VERSION=$v" >> "$GITHUB_ENV"
+          echo "version=$v" >> "$GITHUB_OUTPUT"
           echo "Version: $v"
 
+  macos:
+    needs: version
+    # Apple silicon, like the package (hostArchitectures="arm64").
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      MULLION_VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # the app's build number is the commit count
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-
       - name: Test
         run: cargo test -p mullion-proto -p mullion-host
-
       - name: Package
         run: tools/package-macos.sh
+      - uses: actions/upload-artifact@v7
+        with:
+          name: macos
+          path: dist/Mullion-${{ env.MULLION_VERSION }}.pkg
+          if-no-files-found: error
 
+  windows:
+    needs: version
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      MULLION_VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build the viewer
+        run: cargo build -p mullion-app --release
+      - name: Name it
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp target/release/mullion-app.exe "dist/Mullion-$MULLION_VERSION-windows-x64.exe"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows
+          path: dist/Mullion-${{ env.MULLION_VERSION }}-windows-x64.exe
+          if-no-files-found: error
+
+  android:
+    needs: version
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      MULLION_VERSION: ${{ needs.version.outputs.version }}
+      DX_VERSION: 0.7.10 # tools/build-android.sh relies on this dx's Gradle layout
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Install dx
+        run: |
+          cd "$RUNNER_TEMP"
+          base="https://github.com/DioxusLabs/dioxus/releases/download/v$DX_VERSION"
+          curl -fsSLO "$base/dx-x86_64-unknown-linux-gnu.tar.gz"
+          curl -fsSLO "$base/dx-x86_64-unknown-linux-gnu.sha256"
+          echo "$(awk '{print $1}' dx-x86_64-unknown-linux-gnu.sha256)  dx-x86_64-unknown-linux-gnu.tar.gz" | sha256sum -c -
+          mkdir -p "$HOME/.local/bin" && tar -xzf dx-x86_64-unknown-linux-gnu.tar.gz -C "$HOME/.local/bin"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Build the APK
+        run: |
+          export ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME"
+          dx --version
+          tools/build-android.sh
+          cp dist/mullion-tablet-debug.apk "dist/Mullion-$MULLION_VERSION-android-arm64.apk"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: android
+          path: dist/Mullion-${{ env.MULLION_VERSION }}-android-arm64.apk
+          if-no-files-found: error
+
+  release:
+    needs: [version, macos, windows, android]
+    if: github.event_name == 'push' || inputs.publish
+    runs-on: ubuntu-latest
+    env:
+      MULLION_VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
       - name: Publish pre-release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          tag="v$MULLION_VERSION"
-          gh release create "$tag" "dist/Mullion-$MULLION_VERSION.pkg" \
-            --prerelease --target "$GITHUB_SHA" \
+          ls -l dist
+          gh release create "v$MULLION_VERSION" dist/* \
+            -R "$GITHUB_REPOSITORY" --prerelease --target "$GITHUB_SHA" \
             --title "Mullion $MULLION_VERSION (beta)" \
             --generate-notes \
-            --notes "Beta build for Apple silicon Macs (macOS 14 or later). Open the .pkg to install; Mullion.app finds later betas itself (menu bar > Check for Updates…).
+            --notes "Beta build. Pick the file for your device:
 
-          The package is not notarized: if macOS refuses to open a downloaded copy, Control-click it and choose Open."
+          - **Mac (host)**: \`Mullion-$MULLION_VERSION.pkg\`, Apple silicon, macOS 14 or later. Open it to install; Mullion.app finds later betas itself (menu bar > Check for Updates…).
+          - **Windows (viewer)**: \`Mullion-$MULLION_VERSION-windows-x64.exe\`, Windows 10 or 11. Watches a Mac running Mullion, or uses this PC as its extra screen. Sharing a Windows PC's own screen is not built yet.
+          - **Android tablet**: \`Mullion-$MULLION_VERSION-android-arm64.apk\`. Debug-signed: uninstall the previous beta before installing this one.
+
+          None of these are signed by a store or notarized: macOS may need Control-click > Open on a downloaded .pkg, Windows SmartScreen may need More info > Run anyway, and Android needs installs from unknown sources allowed."
