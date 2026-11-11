@@ -23,6 +23,7 @@ For the Windows app: crates/app/assets/icons/mullion.ico, the Mac app tile
   python3 tools/make-icons.py             everything (needs Chrome)
   python3 tools/make-icons.py --menubar   only MenuBarIcon.png
   python3 tools/make-icons.py --windows   only mullion.ico (from Mullion.icns)
+  python3 tools/make-icons.py --android   only the Android launcher icons (crates/app/android/res)
 """
 import base64, os, re, shutil, subprocess, sys, tempfile
 from pathlib import Path
@@ -147,6 +148,39 @@ def windows_ico():
     tile.save(OUT / "mullion.ico", sizes=sizes)
 
 
+def android_icons():
+    """Launcher icons for the APK. dx 0.7.10 ships Android's template robot;
+    tools/build-android.sh lays these over it. Adaptive (Android 8+): the
+    maskable artwork's glyph on its own background colour, kept inside the
+    66/108 safe zone; plus plain PNGs for older launchers."""
+    res = ROOT / "crates/app/android/res"
+    art = Image.open(OUT / "icon-maskable-512.png").convert("RGBA")
+    bg = art.getpixel((4, 4))
+    tile = Image.open(OUT / "icon-512.png").convert("RGBA")
+    for name, dp in (("mdpi", 1), ("hdpi", 1.5), ("xhdpi", 2), ("xxhdpi", 3), ("xxxhdpi", 4)):
+        d = res / f"mipmap-{name}"
+        d.mkdir(parents=True, exist_ok=True)
+        tile.resize((round(48 * dp), round(48 * dp)), Image.LANCZOS).save(d / "ic_launcher.png")
+        layer = round(108 * dp)
+        fg = Image.new("RGBA", (layer, layer), bg)
+        # The maskable art keeps its glyph within ~64%; at 92% of the layer it
+        # sits inside the 61% safe zone every launcher mask shows.
+        inner = round(layer * 0.92)
+        fg.alpha_composite(art.resize((inner, inner), Image.LANCZOS), ((layer - inner) // 2, (layer - inner) // 2))
+        fg.save(d / "ic_launcher_foreground.png")
+    (res / "values").mkdir(parents=True, exist_ok=True)
+    (res / "values/ic_launcher_background.xml").write_text(
+        '<?xml version="1.0" encoding="utf-8"?>\n<resources>\n'
+        f'    <color name="ic_launcher_bg">#{bg[0]:02X}{bg[1]:02X}{bg[2]:02X}</color>\n</resources>\n')
+    (res / "mipmap-anydpi-v26").mkdir(parents=True, exist_ok=True)
+    (res / "mipmap-anydpi-v26/ic_launcher.xml").write_text(
+        '<?xml version="1.0" encoding="utf-8"?>\n'
+        '<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">\n'
+        '    <background android:drawable="@color/ic_launcher_bg" />\n'
+        '    <foreground android:drawable="@mipmap/ic_launcher_foreground" />\n'
+        '</adaptive-icon>\n')
+
+
 def menubar_glyph():
     """Laptop + tablet, a template image (only alpha counts), drawn 8x then
     reduced to 36 px (18 pt @2x). Units below are 36 px grid units."""
@@ -167,4 +201,6 @@ if __name__ == "__main__":
         sys.exit(menubar_glyph())
     if sys.argv[1:] == ["--windows"]:
         sys.exit(windows_ico())
+    if sys.argv[1:] == ["--android"]:
+        sys.exit(android_icons())
     sys.exit(main())

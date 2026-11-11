@@ -359,6 +359,56 @@
   // Version, bottom left: the host's when it served this page, the app's in the tablet app.
   if (window.MULLION_VERSION) $('version').textContent = 'Mullion ' + window.MULLION_VERSION;
 
+  // The Windows and Android apps look for a newer beta on GitHub at start and
+  // every 6 hours, and offer this platform's file (Mullion.app has its own
+  // updater in the menu bar). The page can call GitHub itself: it is HTTPS.
+  const UPDATE_FILE = { windows: '-windows-x64.exe', android: '-android-arm64.apk' }[window.MULLION_APP];
+  // Same order as mullion_proto::version::is_newer: numbers, then a release
+  // beats its pre-releases, then pre-release parts (numeric ones as numbers).
+  function newer(a, b) {
+    const parse = (v) => {
+      const m = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+.*)?$/.exec(String(v).trim());
+      return m && { core: [+m[1], +m[2], +m[3]], pre: m[4] ? m[4].split('.') : null };
+    };
+    const x = parse(a), y = parse(b);
+    if (!x || !y) return false;
+    for (let i = 0; i < 3; i++) if (x.core[i] !== y.core[i]) return x.core[i] > y.core[i];
+    if (!x.pre || !y.pre) return !x.pre && !!y.pre;
+    for (let i = 0; i < Math.max(x.pre.length, y.pre.length); i++) {
+      const p = x.pre[i], q = y.pre[i];
+      if (p === undefined) return false;
+      if (q === undefined) return true;
+      const pn = /^\d+$/.test(p), qn = /^\d+$/.test(q);
+      if (pn && qn && +p !== +q) return +p > +q;
+      if (pn !== qn) return qn;
+      if (!pn && p !== q) return p > q;
+    }
+    return false;
+  }
+  async function checkUpdate() {
+    if (!UPDATE_FILE || !window.MULLION_VERSION) return;
+    try {
+      const r = await fetch('https://api.github.com/repos/th3r-dev/mullion/releases?per_page=20', { cache: 'no-store', headers: { Accept: 'application/vnd.github+json' } });
+      if (!r.ok) return;
+      let best = null;
+      for (const rel of await r.json()) {
+        const file = !rel.draft && (rel.assets || []).find((a) => a.name.endsWith(UPDATE_FILE));
+        const v = String(rel.tag_name || '').replace(/^v/, '');
+        if (file && (!best || newer(v, best.version))) best = { version: v, url: file.browser_download_url };
+      }
+      if (!best || !newer(best.version, window.MULLION_VERSION)) return;
+      const link = $('update');
+      link.href = best.url;
+      link.textContent = `Get Mullion ${best.version}`;
+      // Beta APKs are signed with a different key each build, so Android
+      // will not install one over the other.
+      link.title = window.MULLION_APP === 'android' ? 'Remove this app first, then install the new one.' : 'Download the new version';
+      link.hidden = false;
+    } catch (e) { /* offline or rate-limited: try again later */ }
+  }
+  if (UPDATE_FILE) { setTimeout(checkUpdate, 3000); setInterval(checkUpdate, 6 * 3600 * 1000); }
+  window.mullionUpdate = { newer, check: checkUpdate };
+
   // Shared with layout.js so every surface moves on the same spring.
   window.mullionUI = { spring, toast };
 })();
