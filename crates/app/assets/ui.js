@@ -448,9 +448,7 @@
       const link = $('update');
       link.href = best.url;
       link.textContent = `Get Mullion ${best.version}`;
-      // Beta APKs are signed with a different key each build, so Android
-      // will not install one over the other.
-      link.title = window.MULLION_APP === 'android' ? 'Remove this app first, then install the new one.' : 'Download the new version';
+      link.title = 'Download the new version';
       link.hidden = false;
     } catch (e) { /* offline or rate-limited: try again later */ }
   }
