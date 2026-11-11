@@ -8,14 +8,16 @@
 # How it runs:
 #   - A pull request into dev: tests and builds every package, publishes
 #     nothing (packages are on the run's page). A newer push to the PR cancels
-#     the older run.
+#     the older run. A package that already passed on the PR is not built
+#     again unless a file it builds from changed since (tools/ci/changed-jobs.sh;
+#     the "changes" job's summary links the run where it passed).
 #   - Merging it (any push to dev): builds and publishes the next beta,
 #     <Cargo.toml version>-beta.<run number>, e.g. 0.1.0-beta.12, and tags it.
 #     Run numbers count PR runs too, so betas are not consecutive.
 #   - By hand: Actions > Beta release > Run workflow. Untick "publish" for a
 #     dry run.
 #   - Push a tag: git tag v0.1.0-beta.3 && git push origin v0.1.0-beta.3
-# Changes to Markdown alone do not run it.
+# Changes to Markdown, docs/ or brand/ alone do not run it.
 #
 # Mullion.app checks these releases for updates (crates/host/src/update.rs);
 # it installs the .pkg asset.
@@ -30,14 +32,15 @@ on:
         default: true
   pull_request:
     branches: [dev]
-    paths-ignore: ["**.md"]
+    paths-ignore: ["**.md", "docs/**", "brand/**"]
   push:
     branches: [dev]
     tags: ["v*-beta.*"]
-    paths-ignore: ["**.md"]
+    paths-ignore: ["**.md", "docs/**", "brand/**"]
 
 permissions:
   contents: write
+  actions: read # changes: earlier runs of this PR
 
 # Releases one at a time, in order; a PR's runs replace each other.
 concurrency:
@@ -63,8 +66,30 @@ jobs:
           echo "version=$v" >> "$GITHUB_OUTPUT"
           echo "Version: $v"
 
+  # Which packages this run builds: on a PR, only those a change can affect.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      macos: ${{ steps.pick.outputs.macos }}
+      windows: ${{ steps.pick.outputs.windows }}
+      android: ${{ steps.pick.outputs.android }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # to compare with the commit where a package last passed
+      - id: pick
+        env:
+          EVENT: ${{ github.event_name }}
+          TO_SHA: ${{ github.sha }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.head_ref }}
+          RUN_ID: ${{ github.run_id }}
+          GH_TOKEN: ${{ github.token }}
+        run: tools/ci/changed-jobs.sh
+
   macos:
-    needs: version
+    needs: [version, changes]
+    if: needs.changes.outputs.macos == 'true'
     # Apple silicon, like the package (hostArchitectures="arm64").
     runs-on: macos-15
     timeout-minutes: 45
@@ -107,7 +132,8 @@ jobs:
           if-no-files-found: error
 
   windows:
-    needs: version
+    needs: [version, changes]
+    if: needs.changes.outputs.windows == 'true'
     runs-on: windows-latest
     timeout-minutes: 45
     env:
@@ -130,7 +156,8 @@ jobs:
           if-no-files-found: error
 
   android:
-    needs: version
+    needs: [version, changes]
+    if: needs.changes.outputs.android == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
