@@ -1,0 +1,12 @@
+2026-11-11T17:01:48.258072Z  INFO mullion_host::pairing: pairing requested by Mac
+Pairing code for Mac: 263 091
+2026-11-11T17:02:13.181664Z  WARN mullion_host::pairing: pairing Mac: wrong code (2 attempts left)
+2026-11-11T17:03:38.162262Z  INFO mullion_host::pairing: paired Mac
+2026-11-11T17:03:38.446577Z  INFO mullion_host::signaling: offer from 10.43.77.126:62817 answered (Mirror)
+2026-11-11T17:03:38.454988Z  INFO mullion_host::session: #1 ice: Checking
+2026-11-11T17:03:38.512719Z  INFO mullion_host::session: #1 ice: Completed
+2026-11-11T17:03:38.991091Z  INFO mullion_host::platform::macos: pipeline started for Main: 1920x1080 @ 60 fps, 10000 kbps
+2026-11-11T17:04:17.550826Z  INFO mullion_host::signaling: offer from 10.43.77.126:62817 answered (Mirror)
+2026-11-11T17:04:17.560682Z  INFO mullion_host::session: #2 ice: Checking
+2026-11-11T17:04:17.621290Z  INFO mullion_host::session: #2 ice: Completed
+2026-11-11T17:04:17.760238Z  INFO mullion_host::platform::macos: pipeline started for Main: 1920x1080 @ 60 fps, 10000 kbps
