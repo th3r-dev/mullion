@@ -10,20 +10,41 @@
   --glass: rgba(247, 247, 245, 0.72); --glass-edge: rgba(255, 255, 255, 0.5);
   --hud: rgba(17, 20, 24, 0.86);
   --radius: 12px;
+  /* Raised surfaces: in dark they get lighter as they rise (cards, then
+     dialogs), since shadows barely show on a dark page. */
+  --surface: #FFFFFF; --surface-2: #FFFFFF;
+  --heart: #BF3989;
+  color-scheme: light;
 }
+/* Dark: the system's choice unless this device picked Light; or this device
+   picked Dark. The theme switch in the footer sets data-theme (ui.js). */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --ink: #ECEDEE; --paper: #0F1113; --line: #2A2E33;
+    --surface: #171A1E; --surface-2: #1E2227;
     --accent: #5B93FF; --on-accent: #0F1113;
     --device: #FF7A52;
     --device-1: #FF7A52; --device-2: #3CC7AE; --device-3: #B98CF0;
     --glass: rgba(17, 20, 24, 0.72); --glass-edge: rgba(255, 255, 255, 0.08);
+    --heart: #E85AAD;
+    color-scheme: dark;
   }
+}
+:root[data-theme="dark"] {
+  --ink: #ECEDEE; --paper: #0F1113; --line: #2A2E33;
+  --surface: #171A1E; --surface-2: #1E2227;
+  --accent: #5B93FF; --on-accent: #0F1113;
+  --device: #FF7A52;
+  --device-1: #FF7A52; --device-2: #3CC7AE; --device-3: #B98CF0;
+  --glass: rgba(17, 20, 24, 0.72); --glass-edge: rgba(255, 255, 255, 0.08);
+  --heart: #E85AAD;
+  color-scheme: dark;
 }
 
 html, body { margin: 0; height: 100%; background: var(--paper); color: var(--ink);
   font: 15px/1.5 system-ui, -apple-system, "Segoe UI Variable", Roboto, sans-serif;
-  font-optical-sizing: auto; -webkit-font-smoothing: antialiased; overflow: hidden; }
+  font-optical-sizing: auto; -webkit-font-smoothing: antialiased; overflow: hidden;
+  transition: background-color 200ms ease-out, color 200ms ease-out; }
 * { box-sizing: border-box; }
 button, input, select { font: inherit; color: inherit; }
 
@@ -43,28 +64,34 @@ button:has(> .i), .links a { display: inline-flex; align-items: center; justify-
 .stage.live ~ .status { top: calc(max(12px, env(safe-area-inset-top)) + 58px); }
 
 /* Setup card: the only solid surface; anchored to the centre, materializes. */
-.setup { position: fixed; inset: 0; display: grid; place-items: center; padding: 24px;
-  background: var(--paper); }
-.card { width: min(420px, 100%); display: grid; gap: 14px;
+/* It scrolls when the card is taller than the screen (a phone in landscape, a
+   long Nearby list), and the footer (version, links) sits under the card in
+   the flow, so neither ever covers the other. */
+.setup { position: fixed; inset: 0; overflow-y: auto; overscroll-behavior: contain; background: var(--paper);
+  display: grid; grid-template-columns: 1fr auto; grid-template-rows: 1fr auto auto; column-gap: 8px;
+  padding: max(24px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+           max(12px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+.card { grid-column: 1 / -1; align-self: safe center; justify-self: center; margin-bottom: 20px;
+  width: min(440px, 100%); display: grid; gap: 14px;
   will-change: transform, opacity, filter; transform-origin: 50% 50%; }
 .card .brand { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
 .card .brand svg { width: 44px; height: 44px; flex: none; }
-.card .brand h1 { font-size: 22px; line-height: 1.2; letter-spacing: -0.01em; font-weight: 650; margin: 0; }
+.card .brand h1 { font-size: clamp(20px, 18px + 0.6vw, 26px); line-height: 1.2; letter-spacing: -0.01em; font-weight: 650; margin: 0; }
 .card .brand p { margin: 0; opacity: .7; font-size: 13px; letter-spacing: 0; }
 .field { display: grid; gap: 4px; }
 .field label { font-size: 12px; font-weight: 600; letter-spacing: .01em; opacity: .75; }
 .field input, .field select { width: 100%; padding: 10px 12px; border-radius: 10px;
-  border: 1px solid var(--line); background: transparent; outline: none;
+  border: 1px solid var(--line); background: var(--surface); outline: none;
   font-variant-numeric: tabular-nums; transition: border-color 120ms ease-out, box-shadow 120ms ease-out; }
 .field input:focus-visible, .field select:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); }
-.row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.row { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(170px, 100%), 1fr)); gap: 10px; }
 .seg { display: grid; grid-template-columns: 1fr 1fr; padding: 3px; border-radius: 10px; border: 1px solid var(--line); position: relative; }
 .seg button { position: relative; z-index: 1; background: none; border: 0; padding: 8px 0; border-radius: 8px; font-weight: 600; opacity: .7; }
 .seg .i { width: 16px; height: 16px; }
 .seg button[aria-pressed="true"] { opacity: 1; color: var(--on-accent); }
 .seg .thumb { position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc(50% - 3px); border-radius: 8px;
   background: var(--accent); will-change: transform; }
-.primary { padding: 12px 16px; border-radius: 10px; border: 0; background: var(--accent); color: var(--on-accent);
+.primary { min-height: 44px; padding: 12px 16px; border-radius: 10px; border: 0; background: var(--accent); color: var(--on-accent);
   font-weight: 650; letter-spacing: 0; cursor: pointer; will-change: transform;
   transition: transform 100ms ease-out, filter 100ms ease-out; }
 .primary:active, .primary.pressed { transform: scale(0.97); filter: brightness(.95); }
@@ -88,7 +115,7 @@ button:has(> .i), .links a { display: inline-flex; align-items: center; justify-
 .hosts { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .hosts:empty { display: none; }
 .host { width: 100%; display: flex; align-items: center; gap: 12px; padding: 10px 12px; text-align: left; cursor: pointer;
-  border-radius: 12px; border: 1px solid var(--line); background: transparent; will-change: transform, opacity;
+  border-radius: 12px; border: 1px solid var(--line); background: var(--surface); will-change: transform, opacity;
   transition: border-color 120ms ease-out, background 120ms ease-out; }
 .host:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
 .host:active, .host.pressed { background: color-mix(in srgb, var(--accent) 8%, transparent); }
@@ -104,7 +131,7 @@ button:has(> .i), .links a { display: inline-flex; align-items: center; justify-
 .nearby-empty { margin: 0; font-size: 13px; opacity: .7; }
 .nearby-empty:empty { display: none; }
 
-.ghost { justify-self: center; padding: 8px 14px; border-radius: 10px; border: 0; background: transparent; color: var(--ink);
+.ghost { justify-self: center; min-height: 40px; padding: 8px 14px; border-radius: 10px; border: 0; background: transparent; color: var(--ink);
   font-size: 14px; font-weight: 600; opacity: .8; cursor: pointer; transition: transform 100ms ease-out, opacity 120ms ease-out, background 120ms ease-out; }
 .ghost:hover, .ghost:focus-visible { opacity: 1; background: color-mix(in srgb, var(--ink) 7%, transparent); }
 .ghost:active { transform: scale(0.97); }
@@ -128,8 +155,8 @@ button:has(> .i), .links a { display: inline-flex; align-items: center; justify-
 
 /* Project links: bottom-right of the setup screen, quiet until touched.
    They live inside .setup, so they leave with the card and never sit on the video. */
-.links { position: fixed; right: max(16px, env(safe-area-inset-right)); bottom: max(14px, env(safe-area-inset-bottom));
-  display: flex; gap: 4px; }
+.links { grid-column: 2; grid-row: 2 / 4; align-self: end;
+  display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
 .links a { padding: 6px 10px; border-radius: 9px; color: var(--ink); text-decoration: none;
   font-size: 13px; font-weight: 600; letter-spacing: .01em; opacity: .7;
   transition: opacity 120ms ease-out, background 120ms ease-out, transform 100ms ease-out; }
@@ -137,13 +164,18 @@ button:has(> .i), .links a { display: inline-flex; align-items: center; justify-
 .links a:active { transform: scale(0.97); }
 .links a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .links .i { width: 16px; height: 16px; }
+/* The theme switch sits with the links and looks like them. */
+.links button { border: 0; background: transparent; cursor: pointer; padding: 6px 10px; border-radius: 9px; color: var(--ink);
+  font-size: 13px; font-weight: 600; letter-spacing: .01em; opacity: .7; display: inline-flex; align-items: center; gap: 7px; }
+.links button:hover, .links button:focus-visible { opacity: 1; background: color-mix(in srgb, var(--ink) 7%, transparent); }
+.links button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 /* Version, bottom left, opposite the links; same type, quieter. */
-.version { position: fixed; left: max(16px, env(safe-area-inset-left)); bottom: max(14px, env(safe-area-inset-bottom));
+.version { grid-column: 1; grid-row: 3; align-self: end; justify-self: start;
   margin: 0; padding: 6px 10px; color: var(--ink); opacity: .55; font-size: 13px; font-weight: 600;
-  letter-spacing: .01em; font-variant-numeric: tabular-nums; user-select: text; }
+  letter-spacing: .01em; font-variant-numeric: tabular-nums; user-select: text; white-space: nowrap; }
 .version:empty { display: none; }
 /* The apps' update check (ui.js): a link just above the version. */
-.update { position: fixed; left: max(16px, env(safe-area-inset-left)); bottom: calc(max(14px, env(safe-area-inset-bottom)) + 22px);
+.update { grid-column: 1; grid-row: 2; align-self: end; justify-self: start;
   font-size: 13px; font-weight: 600; color: var(--accent); text-decoration: none; padding: 4px 10px; }
 .update:hover, .update:focus-visible { text-decoration: underline; }
 .update[hidden], .update-bar[hidden] { display: none; }
@@ -151,12 +183,13 @@ button:has(> .i), .links a { display: inline-flex; align-items: center; justify-
 .update-bar { position: fixed; z-index: 30; left: 50%; transform: translateX(-50%);
   bottom: calc(max(16px, env(safe-area-inset-bottom)) + 52px); width: min(420px, calc(100% - 32px));
   display: grid; gap: 10px; padding: 14px; border-radius: var(--radius);
-  background: var(--paper); border: 1px solid var(--line); box-shadow: 0 8px 28px rgba(0, 0, 0, .18); }
+  background: var(--surface-2); border: 1px solid var(--line); box-shadow: 0 8px 28px rgba(0, 0, 0, .18); }
 .update-bar p { margin: 0; font-size: 14px; line-height: 1.45; }
 .update-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.update-actions .ghost { justify-self: stretch; }
+
 /* GitHub's sponsor heart colour; a non-text mark (4.7:1 light, 5.9:1 dark on --paper). */
-.links .heart { color: #BF3989; }
-@media (prefers-color-scheme: dark) { .links .heart { color: #E85AAD; } }
+.links .heart { color: var(--heart); }
 
 /* Floating toolbar: translucent, hides over the video after a pause. */
 .toolbar { position: fixed; left: 50%; top: max(12px, env(safe-area-inset-top)); transform: translate(-50%, 0);
@@ -195,7 +228,7 @@ button:has(> .i), .links a { display: inline-flex; align-items: center; justify-
   visibility: hidden; pointer-events: none; }
 .sheet .scrim { position: absolute; inset: 0; background: rgba(15, 17, 19, 0.5); opacity: 0; }
 .panel { position: relative; width: min(980px, 100%); outline: none; max-height: 100%; display: grid; grid-template-rows: auto 1fr auto; gap: 12px;
-  padding: 18px 18px 14px; border-radius: 16px; background: var(--paper); color: var(--ink); border: 1px solid var(--line);
+  padding: 18px 18px 14px; border-radius: 16px; background: var(--surface-2); color: var(--ink); border: 1px solid var(--line);
   box-shadow: 0 24px 64px rgba(0, 0, 0, 0.32); will-change: transform, opacity; transform-origin: 50% 60%; }
 .panel header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .panel h2 { margin: 0; display: flex; align-items: center; gap: 8px; font-size: 22px; line-height: 1.2; font-weight: 650; letter-spacing: -0.01em; }
@@ -252,6 +285,21 @@ button:has(> .i), .links a { display: inline-flex; align-items: center; justify-
   .hud, .status { outline: 1px solid #fff; }
 }
 @media (prefers-reduced-motion: reduce) {
+  html, body { transition: none; }
   .card, .toolbar, .status, .seg .thumb, .links a, .board, .tile, .slot, .host, .scanbar span { transition: opacity 150ms ease !important; }
   .stage video { transition: opacity 150ms ease; }
+}
+
+/* Touch screens: every control at least 44px each way. */
+@media (pointer: coarse) {
+  .ghost, .seg button, .links a, .links button, .toolbar button { min-height: 44px; }
+  .icon-btn { width: 44px; height: 44px; }
+}
+/* Narrow screens: the toolbar keeps its icons and drops the words (still
+   read out: the label stays in the button, only hidden from view). */
+@media (max-width: 560px) {
+  .toolbar { max-width: calc(100% - 24px); gap: 4px; }
+  .toolbar .name { max-width: 28vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .toolbar button > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .toolbar button { padding: 6px 8px; }
 }

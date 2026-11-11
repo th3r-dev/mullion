@@ -46,6 +46,25 @@
   // Buttons hold an icon plus a label span; change the parts, never textContent.
   const setIcon = (use, name) => use.setAttribute('href', '#i-' + name);
 
+  // Colours: Auto follows the system; Light or Dark is this device's choice,
+  // kept with its other settings. ui.css reads data-theme on <html>.
+  const THEMES = ['auto', 'light', 'dark'];
+  const THEME_NAMES = { auto: 'Auto', light: 'Light', dark: 'Dark' };
+  let theme = 'auto';
+  try { const t = localStorage.getItem('mullion.theme'); if (THEMES.includes(t)) theme = t; } catch (e) { /* storage off */ }
+  function applyTheme() {
+    if (theme === 'auto') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = theme;
+    setIcon($('themeIcon'), 'theme-' + theme);
+    $('themeLabel').textContent = THEME_NAMES[theme];
+    $('themeBtn').title = `Colours: ${THEME_NAMES[theme]}. Tap to switch.`;
+  }
+  applyTheme();
+  $('themeBtn').addEventListener('click', () => {
+    theme = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];
+    try { localStorage.setItem('mullion.theme', theme); } catch (e) { /* storage off */ }
+    applyTheme();
+  });
+
   let mode = localStorage.getItem('mullion.mode') || 'mirror';
   // Viewer mode: the page is in Mullion.app's "Connect to Another Computer…"
   // window, served by this Mac's own host. That host is not a target: it is

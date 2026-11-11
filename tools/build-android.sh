@@ -27,6 +27,14 @@ EOF
 # Mullion's (crates/app/android/res, from tools/make-icons.py --android).
 rm -f "$APP"/app/src/main/res/mipmap-*/ic_launcher.webp "$APP"/app/src/main/res/mipmap-*/ic_launcher_round.webp
 cp -R crates/app/android/res/. "$APP/app/src/main/res/"
+# Dark mode: dx's theme is Theme.AppCompat.Light, and Android's web view
+# reports prefers-color-scheme from the app's theme, so the page never went
+# dark. DayNight follows the system.
+cat > "$APP/app/src/main/res/values/styles.xml" <<'XML'
+<resources>
+    <style name="AppTheme" parent="@style/Theme.AppCompat.DayNight.NoActionBar" />
+</resources>
+XML
 # The launcher name: dx derives "MullionApp" from the crate name.
 cat > "$APP/app/src/main/res/values/strings.xml" <<'EOF'
 <resources>

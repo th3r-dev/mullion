@@ -10,6 +10,15 @@
   <symbol id="i-scan" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></symbol>
   <symbol id="i-computer" viewBox="0 0 24 24"><path d="M20 16V7a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9m16 0H4m16 0 1.28 2.55a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45L4 16"/></symbol>
   <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+  <symbol id="i-cast" viewBox="0 0 24 24"><path d="M2 8V6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-6"/><path d="M2 12a9 9 0 0 1 8 8"/><path d="M2 16a5 5 0 0 1 4 4"/><path d="M2 20h.01"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><rect x="9" y="9" width="6" height="6" rx="1"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+  <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></symbol>
+  <symbol id="i-theme-auto" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></symbol>
+  <symbol id="i-theme-light" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></symbol>
+  <symbol id="i-theme-dark" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></symbol>
   <symbol id="i-heart" viewBox="0 0 24 24"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></symbol>
   <symbol id="i-github" viewBox="0 0 16 16"><path fill="currentColor" stroke="none" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></symbol>
 </svg>
@@ -60,23 +69,23 @@
       <label for="code" id="codeLabel">Code shown on the Mac</label>
       <input id="code" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="000 000" aria-describedby="hint">
       <div class="pair-actions">
-        <button class="primary" id="pairGo" type="button"><span>Pair</span></button>
-        <button class="ghost" id="pairCancel" type="button"><span>Cancel</span></button>
+        <button class="primary" id="pairGo" type="button"><svg class="i" aria-hidden="true"><use href="#i-link"/></svg><span>Pair</span></button>
+        <button class="ghost" id="pairCancel" type="button"><svg class="i" aria-hidden="true"><use href="#i-x"/></svg><span>Cancel</span></button>
       </div>
     </div>
     <button class="primary" id="go" type="button"><svg class="i" aria-hidden="true"><use href="#i-connect"/></svg><span>Connect</span></button>
     <button class="ghost" id="screensSetupBtn" type="button" title="See every screen of the Mac and move them"><svg class="i" aria-hidden="true"><use href="#i-screens"/></svg><span>Arrange screens</span></button>
-    <button class="ghost" id="shareBtn" type="button" title="Show this tablet's screen on a Mac or in a browser" hidden><svg class="i" aria-hidden="true"><use href="#i-mirror"/></svg><span>Share this screen</span></button>
+    <button class="ghost" id="shareBtn" type="button" title="Show this tablet's screen on a Mac or in a browser" hidden><svg class="i" aria-hidden="true"><use href="#i-cast"/></svg><span>Share this screen</span></button>
     <section class="share" id="shareBox" aria-labelledby="shareTitle" hidden>
       <h2 class="label" id="shareTitle">Sharing this screen</h2>
       <p>On the Mac, open Mullion's menu, choose <b>Connect to Another Computer…</b>, then pick this tablet or enter <b id="shareAddr"></b>.</p>
       <div class="share-code" id="shareCodeBox" role="alert" hidden>
         <p id="shareWho"></p>
         <output class="code" id="shareCode"></output>
-        <button class="ghost" id="shareDeny" type="button"><span>Don't Allow</span></button>
+        <button class="ghost" id="shareDeny" type="button"><svg class="i" aria-hidden="true"><use href="#i-x"/></svg><span>Don't Allow</span></button>
       </div>
       <p class="share-viewers" id="shareViewers" aria-live="polite"></p>
-      <button class="primary" id="shareStop" type="button"><span>Stop sharing</span></button>
+      <button class="primary" id="shareStop" type="button"><svg class="i" aria-hidden="true"><use href="#i-stop"/></svg><span>Stop sharing</span></button>
     </section>
     <div class="hint" id="hint"></div>
   </div>
@@ -85,11 +94,12 @@
   <div class="update-bar" id="updateBar" role="alertdialog" aria-labelledby="updateText" hidden>
     <p id="updateText"></p>
     <div class="update-actions">
-      <button class="ghost" id="updateLater" type="button"><span>Later</span></button>
-      <button class="primary" id="updateGo" type="button"><span>Update</span></button>
+      <button class="ghost" id="updateLater" type="button"><svg class="i" aria-hidden="true"><use href="#i-clock"/></svg><span>Later</span></button>
+      <button class="primary" id="updateGo" type="button"><svg class="i" aria-hidden="true"><use href="#i-download"/></svg><span>Update</span></button>
     </div>
   </div>
   <nav class="links" aria-label="Project">
+    <button id="themeBtn" type="button"><svg class="i" aria-hidden="true"><use id="themeIcon" href="#i-theme-auto"/></svg><span id="themeLabel">Auto</span></button>
     <a href="https://github.com/th3r-dev/mullion" target="_blank" rel="noopener noreferrer"><svg class="i" aria-hidden="true"><use href="#i-github"/></svg><span>GitHub</span></a>
     <a href="https://github.com/sponsors/th3r-dev" target="_blank" rel="noopener noreferrer"><svg class="i heart" aria-hidden="true"><use href="#i-heart"/></svg><span>Sponsor</span></a>
   </nav>
