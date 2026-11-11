@@ -1,0 +1,11 @@
+# Mullion.app built from this branch (0.1.0-pr21), signed like the releases, run as the menu bar app on port 47201.
+# Device: the receiver page in Chrome, named "iPad test". Mac host name replaced with [Mac name].
+
+2026-11-11T17:15:44.552110Z  INFO mullion_host::pairing: pairing requested by iPad test
+2026-11-11T17:16:21.912714Z  INFO mullion_host::pairing: paired iPad test
+2026-11-11T17:16:22.122002Z  INFO mullion_host::signaling: offer from 10.43.77.126:52550 answered (Mirror)
+2026-11-11T17:16:22.196293Z  INFO mullion_host::session: #1 ice: Completed
+2026-11-11T17:16:22.606579Z  INFO mullion_host::platform::macos: pipeline started for Main: 1920x1080 @ 60 fps, 10000 kbps
+
+# On-screen windows of the app at modal level, 4 s after the code was entered: none (the code dialog closed itself).
+# Page after pairing: {"status":"streaming","frames_presented":417,"video":"1920x1080"}

@@ -8,6 +8,9 @@ in `browser-checks.json`.
 
 | File | What it shows |
 |---|---|
+| `0-mac-code-dialog.png` | **Where the code comes from**: the dialog the Mac app shows when a device asks to pair (Mullion.app built from this branch, run as the menu bar app). |
+| `0b-code-typed.png` | The same code typed on the device. |
+| `mac-app-log.txt` | The Mac app's side: pairing requested by "iPad test", paired, streaming; the dialog closed itself once the code was accepted. |
 | `1-start.png` | The receiver before connecting. |
 | `2-code-prompt.png` | After Connect: the page asks for the code the Mac shows. |
 | `3-wrong-code.png` | A wrong code: "That code is not the one on the Mac. 2 tries left." |
