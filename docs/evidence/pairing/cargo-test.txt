@@ -1,0 +1,11 @@
+test pairing::tests::a_second_request_cannot_replace_a_fresh_one ... ok
+test pairing::tests::js_and_rust_agree ... ok
+test pairing::tests::signed_requests_check_device_time_and_body ... ok
+test pairing::tests::store_survives_a_restart_and_is_private ... ok
+test pairing::tests::sealed_offer_needs_the_secret_and_a_fresh_challenge ... ok
+test signaling::tests::paired_host_takes_only_sealed_offers_and_signed_layout_requests ... ok
+test pairing::tests::right_code_pairs_and_wrong_codes_run_out ... ok
+test session::offer_tests::str0m_panic_on_an_offer_is_contained ... ok
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+test result: ok. 42 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.22s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s

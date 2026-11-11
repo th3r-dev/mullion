@@ -1,0 +1,9 @@
+{
+  "first_connection_after_pairing": { "status": "streaming", "frames_presented": 333, "video": "1920x1080" },
+  "reconnect": { "asked_for_code_again": false, "status": "streaming", "frames_presented": 314 },
+  "signed_GET_screens": 200,
+  "unsigned_GET_screens_from_LAN": 401,
+  "unsigned_GET_devices_from_LAN": 401,
+  "plain_unsealed_offer": { "status": 401, "body": { "error": "Pair this device with the Mac first.", "pair": true } },
+  "hello_has_host_id": true
+}
