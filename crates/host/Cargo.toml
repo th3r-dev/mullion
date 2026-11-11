@@ -1,0 +1,42 @@
+[package]
+name = "mullion-host"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "mullion-host"
+path = "src/main.rs"
+
+[dependencies]
+mullion-proto = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+str0m = { version = "0.25", default-features = false, features = ["rust-crypto"] }
+str0m-rust-crypto = "0.7"
+tiny_http = "0.12"
+clap = { version = "4", features = ["derive"] }
+hostname = "0.4"
+local-ip-address = "0.6"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSArray", "NSString", "NSError", "NSDictionary", "NSValue", "NSGeometry", "NSURL", "NSData", "NSObject", "NSThread", "NSNotification", "NSURLRequest", "NSTimer", "NSDate"] }
+# Mullion.app: the host as a menu bar app (src/menubar.rs).
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "objc2-core-foundation", "NSApplication", "NSResponder", "NSRunningApplication", "NSStatusBar", "NSStatusItem", "NSStatusBarButton", "NSButton", "NSControl", "NSView", "NSMenu", "NSMenuItem", "NSImage", "NSPasteboard", "NSWorkspace", "NSAlert", "NSWindow", "NSPanel", "NSGraphics", "NSCell", "NSButtonCell", "NSActionCell", "NSEvent"] }
+# Connect to Another Computer…: the receiver page in a window (src/viewer.rs).
+objc2-web-kit = { version = "0.3", default-features = false, features = ["std", "objc2-app-kit", "objc2-core-foundation", "WKNavigation", "WKWebView", "WKWebViewConfiguration", "WKPreferences", "WKUIDelegate", "WKNavigationAction", "WKWindowFeatures"] }
+objc2-core-foundation = "0.3"
+objc2-core-media = "0.3"
+objc2-core-video = "0.3"
+objc2-video-toolbox = "0.3"
+objc2-screen-capture-kit = { version = "0.3", features = ["SCStream", "SCShareableContent", "SCError"] }
+objc2-core-graphics = "0.3"
+dispatch2 = "0.3"
+block2 = "0.6"
+
+[dev-dependencies]
+ureq = { version = "2", default-features = false, features = ["json"] }

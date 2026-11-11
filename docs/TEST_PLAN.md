@@ -6,9 +6,12 @@ on-device script when building starts.
 
 ## How latency is measured (NFR-1)
 
+0. Start the host with `--probe` (or `MULLION_PROBE=true`); the strip is off by
+   default so it does not cover the picture in normal use.
 1. The host serves a probe page (`/probe`) that is opened full screen on the main
    display. Every frame it paints a strip of 32 black and white blocks encoding the
-   host's wall-clock time in milliseconds (low 32 bits), plus two parity blocks.
+   host's wall-clock time in milliseconds (low 32 bits), two parity blocks and two
+   tail blocks that mark the strip's right edge (38 blocks).
 2. The tablet reads that strip from each presented frame: `requestVideoFrameCallback`
    gives the frame and its `expectedDisplayTime`; the strip is sampled from a 1-pixel
    high canvas copy of the video.

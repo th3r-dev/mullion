@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="t">
+  <title id="t">Mullion</title>
+  <style>
+    .ink{fill:#111418} .pane{fill:#1F5FD6}
+    @media (prefers-color-scheme: dark){ .ink{fill:#ECEDEE} .pane{fill:#5B93FF} }
+  </style>
+  <!-- Two panes split by a mullion gap; the cursor tip sits on the seam it is about to cross. -->
+  <rect x="4" y="13" width="26" height="38" rx="5" class="ink"/>
+  <rect x="34" y="13" width="26" height="38" rx="5" class="pane"/>
+  <path d="M30 23 V45 L35.2 40.2 L38.8 48.4 L42.4 46.8 L38.8 38.8 L45.6 38.8 Z"
+        fill="#FFFFFF" stroke="#111418" stroke-width="1.6" stroke-linejoin="round"/>
+</svg>

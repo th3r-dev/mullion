@@ -1,0 +1,122 @@
+//! The four parts that differ by OS (PLAN.md "The platform trait"). PoC 1 only
+//! needs capture and encode; `create_monitor` and `inject` arrive in steps 2 and 5.
+
+use std::sync::mpsc::Sender;
+
+use anyhow::Result;
+
+#[cfg(target_os = "macos")]
+pub mod macos;
+
+/// MULLION_ARRANGE: whether the platform re-arranges displays after create/remove.
+pub static ARRANGE_ENABLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+pub fn set_arrange_enabled(on: bool) {
+    ARRANGE_ENABLED.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+pub fn arrange_enabled() -> bool {
+    ARRANGE_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Which display a pipeline captures.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Source {
+    /// The main display (Mirror mode).
+    Main,
+    /// The host-created virtual display (Extend mode), by platform display id.
+    Virtual(u32),
+}
+
+/// One encoded access unit, Annex B, ready for the WebRTC packetizer.
+#[derive(Debug, Clone)]
+pub struct EncodedFrame {
+    pub seq: u64,
+    /// Host wall clock when the capture callback delivered the frame, ms.
+    pub capture_ms: f64,
+    /// Host wall clock when the encoder output callback fired, ms.
+    pub encode_done_ms: f64,
+    /// 90 kHz RTP timestamp derived from the capture time.
+    pub rtp_time_90k: u64,
+    pub idr: bool,
+    pub data: Vec<u8>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PipelineConfig {
+    pub width: u32,
+    pub height: u32,
+    pub fps: u32,
+    pub bitrate_kbps: u32,
+    /// FR-8: refuse to run without a hardware encoder.
+    pub require_hardware: bool,
+    /// T-5: re-encode the last frame when the screen is static, at this rate.
+    pub idle_fps: u32,
+    /// Burn the latency probe strip into the top of every frame (A-13).
+    pub probe_overlay: bool,
+}
+
+impl Default for PipelineConfig {
+    fn default() -> Self {
+        Self { width: 1920, height: 1080, fps: 60, bitrate_kbps: 10_000, require_hardware: true, idle_fps: 2, probe_overlay: false }
+    }
+}
+
+/// A running capture+encode pipeline. Dropping it stops capture and frees the
+/// encoder (FR-7).
+pub trait Pipeline: Send {
+    /// FR-2 / FR-6: make the next encoded frame an IDR.
+    fn request_idr(&self);
+    fn stop(&mut self);
+}
+
+pub trait Platform: Send + Sync {
+    fn name(&self) -> &'static str;
+    /// Start capturing `source` and encoding it; frames go to `tx`.
+    fn start_pipeline(&self, source: Source, cfg: &PipelineConfig, tx: Sender<EncodedFrame>) -> Result<Box<dyn Pipeline>>;
+    /// Create the virtual display for Extend mode (step 2). `None` when the OS
+    /// has no way to do it yet.
+    /// `name` shows in the OS display settings; `serial` must differ per device
+    /// so the OS keeps a separate arrangement for each.
+    fn create_virtual_display(&self, w: u32, h: u32, hz: u32, name: &str, serial: u32) -> Result<Option<Box<dyn VirtualDisplay>>>;
+    /// Called after a virtual display object is dropped, so the platform can
+    /// re-arrange what is left.
+    fn virtual_display_removed(&self, _source: Source) {}
+    /// Every display the OS shows the desktop on, where it sits (OS display
+    /// space, main display at the origin). Mirrors of another display are left out.
+    fn displays(&self) -> Result<Vec<DisplayInfo>> {
+        Ok(vec![])
+    }
+    /// Move displays to these origins in one OS transaction. The main display
+    /// is not in the list; it stays at the origin.
+    fn set_origins(&self, _origins: &[(u32, i32, i32)]) -> Result<()> {
+        anyhow::bail!("arranging screens is not supported on this OS yet")
+    }
+}
+
+/// One display as the OS has it arranged.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DisplayInfo {
+    pub id: u32,
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+    pub main: bool,
+    pub builtin: bool,
+}
+
+/// A virtual monitor; dropping it removes the display.
+pub trait VirtualDisplay: Send + Sync {
+    fn source(&self) -> Source;
+}
+
+/// The platform for the OS this binary was built for.
+pub fn current() -> Result<Box<dyn Platform>> {
+    #[cfg(target_os = "macos")]
+    {
+        Ok(Box::new(macos::MacOs))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        anyhow::bail!("Mullion host for this OS arrives in PLAN.md steps 2 (Windows) and 7 (Ubuntu)")
+    }
+}

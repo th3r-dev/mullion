@@ -1,0 +1,20 @@
+[workspace]
+resolver = "2"
+members = ["crates/proto", "crates/host", "crates/app"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/th3r-dev/mullion"
+
+[workspace.dependencies]
+mullion-proto = { path = "crates/proto" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[profile.release]
+debug = 1
